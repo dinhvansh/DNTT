@@ -1,105 +1,118 @@
-import React, { useState, useEffect } from 'react';
-import { 
-  Plus, 
-  Search, 
-  Filter, 
-  ArrowUpRight, 
-  ArrowDownRight, 
-  Clock, 
-  CheckCircle2, 
+import React, { useEffect, useState } from 'react';
+import {
+  Plus,
+  Search,
+  Filter,
+  Clock,
+  CheckCircle2,
   XCircle,
   MoreHorizontal,
-  ChevronLeft,
-  ChevronRight,
   Download,
-  FileText,
   Building2,
   CreditCard,
   ArrowUpDown,
-  Calendar
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { toast } from 'sonner';
 import { cn } from './lib/utils';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { useAuth } from './AuthProvider';
+import { createActorContext, listPaymentRequests } from './api/paymentRequests';
+import type { PaymentRequestSummary } from './types/paymentRequest';
 
-interface PaymentRequest {
-  id: string;
-  vendorName: string;
-  entityId: string;
-  amount: number;
-  currency: string;
-  status: 'Pending' | 'Approved' | 'Rejected' | 'Processing' | 'Settled';
-  priority: 'Low' | 'Medium' | 'High' | 'Critical';
-  createdAt: any;
-  requesterName: string;
-  type?: string;
-}
-
-const FilterButton = ({ label, active = false, onClick }: { label: string, active?: boolean, onClick?: () => void }) => (
-  <button 
+const FilterButton = ({ label, active = false, onClick }: { label: string; active?: boolean; onClick?: () => void }) => (
+  <button
     onClick={onClick}
     className={cn(
-      "px-4 py-2 rounded-xl text-sm font-semibold transition-all",
-      active ? "bg-secondary text-white shadow-lg shadow-secondary/20" : "bg-white border border-surface-container-high text-on-surface-variant hover:bg-surface-container-low"
+      'px-4 py-2 rounded-xl text-sm font-semibold transition-all',
+      active ? 'bg-secondary text-white shadow-lg shadow-secondary/20' : 'bg-white border border-surface-container-high text-on-surface-variant hover:bg-surface-container-low'
     )}
   >
     {label}
   </button>
 );
 
+function normalizeBusinessStatusLabel(status: string) {
+  switch (status) {
+    case 'draft':
+      return 'Draft';
+    case 'approved':
+      return 'Approved';
+    case 'rejected':
+    case 'cancelled':
+      return 'Rejected';
+    case 'submitted':
+    case 'pending_approval':
+      return 'Pending';
+    default:
+      return 'Pending';
+  }
+}
+
+function getStatusColor(status: string) {
+  switch (status) {
+    case 'Approved':
+      return 'bg-green-100 text-green-700';
+    case 'Rejected':
+      return 'bg-red-100 text-red-700';
+    case 'Pending':
+      return 'bg-amber-100 text-amber-700';
+    default:
+      return 'bg-gray-100 text-gray-700';
+  }
+}
+
+function getPriorityColor(priority: string) {
+  switch (priority) {
+    case 'critical':
+      return 'bg-red-600';
+    case 'high':
+      return 'bg-orange-500';
+    case 'medium':
+      return 'bg-blue-500';
+    default:
+      return 'bg-gray-400';
+  }
+}
+
 export default function PaymentRequests() {
   const navigate = useNavigate();
-  const [requests, setRequests] = useState<PaymentRequest[]>([]);
+  const { user, actor } = useAuth();
+  const [requests, setRequests] = useState<PaymentRequestSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('All');
 
   useEffect(() => {
-    const q = query(collection(db, 'paymentRequests'), orderBy('createdAt', 'desc'));
-    
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const fetchedRequests = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as PaymentRequest[];
-      setRequests(fetchedRequests);
+    if (!user || !actor) {
+      setRequests([]);
       setLoading(false);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'paymentRequests');
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const filteredRequests = filter === 'All' 
-    ? requests 
-    : requests.filter(r => r.status === filter);
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'Approved': return 'bg-green-100 text-green-700';
-      case 'Rejected': return 'bg-red-100 text-red-700';
-      case 'Pending': return 'bg-amber-100 text-amber-700';
-      case 'Processing': return 'bg-blue-100 text-blue-700';
-      case 'Settled': return 'bg-purple-100 text-purple-700';
-      default: return 'bg-gray-100 text-gray-700';
+      return;
     }
-  };
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'Critical': return 'bg-red-600';
-      case 'High': return 'bg-orange-500';
-      case 'Medium': return 'bg-blue-500';
-      default: return 'bg-gray-400';
-    }
-  };
+    listPaymentRequests(createActorContext({
+      userId: actor.userId,
+      departmentId: actor.departmentId,
+      permissions: actor.permissions,
+    }))
+      .then((result) => {
+        setRequests(result.data);
+      })
+      .catch((error) => {
+        console.error(error);
+        toast.error('Unable to load payment requests', {
+          description: error instanceof Error ? error.message : 'Unknown error',
+        });
+      })
+      .finally(() => {
+        setLoading(false);
+      });
+  }, [actor]);
+
+  const filteredRequests = filter === 'All'
+    ? requests
+    : requests.filter((request) => normalizeBusinessStatusLabel(request.businessStatus) === filter);
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto">
-      {/* Header */}
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-3xl font-black text-on-surface tracking-tighter mb-2">Payment Ledger</h1>
@@ -110,7 +123,7 @@ export default function PaymentRequests() {
             <Download size={18} />
             Export
           </button>
-          <button 
+          <button
             onClick={() => navigate('/requests/new')}
             className="flex items-center gap-2 px-4 py-2 bg-secondary text-white rounded-xl text-sm font-semibold hover:bg-secondary-container transition-colors shadow-lg shadow-secondary/10"
           >
@@ -120,16 +133,15 @@ export default function PaymentRequests() {
         </div>
       </div>
 
-      {/* Stats Summary */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
-          { label: 'Total Volume', value: `$${requests.reduce((acc, r) => acc + r.amount, 0).toLocaleString()}`, icon: CreditCard, color: 'text-blue-600' },
-          { label: 'Pending Review', value: requests.filter(r => r.status === 'Pending').length, icon: Clock, color: 'text-amber-600' },
-          { label: 'Settled (MTD)', value: requests.filter(r => r.status === 'Settled').length, icon: CheckCircle2, color: 'text-green-600' },
-          { label: 'Rejected', value: requests.filter(r => r.status === 'Rejected').length, icon: XCircle, color: 'text-red-600' },
-        ].map((stat, i) => (
-          <div key={i} className="bg-white p-4 rounded-2xl border border-surface-container-high flex items-center gap-4 shadow-sm">
-            <div className={cn("p-2 rounded-lg bg-surface-container-low", stat.color)}>
+          { label: 'Total Volume', value: `$${requests.reduce((acc, item) => acc + item.totalAmount, 0).toLocaleString()}`, icon: CreditCard, color: 'text-blue-600' },
+          { label: 'Pending Review', value: requests.filter((item) => normalizeBusinessStatusLabel(item.businessStatus) === 'Pending').length, icon: Clock, color: 'text-amber-600' },
+          { label: 'Approved', value: requests.filter((item) => normalizeBusinessStatusLabel(item.businessStatus) === 'Approved').length, icon: CheckCircle2, color: 'text-green-600' },
+          { label: 'Rejected', value: requests.filter((item) => normalizeBusinessStatusLabel(item.businessStatus) === 'Rejected').length, icon: XCircle, color: 'text-red-600' },
+        ].map((stat, index) => (
+          <div key={index} className="bg-white p-4 rounded-2xl border border-surface-container-high flex items-center gap-4 shadow-sm">
+            <div className={cn('p-2 rounded-lg bg-surface-container-low', stat.color)}>
               <stat.icon size={20} />
             </div>
             <div>
@@ -140,19 +152,19 @@ export default function PaymentRequests() {
         ))}
       </div>
 
-      {/* Filters & Search */}
       <div className="bg-white p-4 rounded-2xl border border-surface-container-high shadow-sm space-y-4">
         <div className="flex flex-wrap items-center gap-3">
           <div className="relative flex-1 min-w-[300px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
-            <input 
-              type="text" 
-              placeholder="Search by vendor, request ID, or entity..." 
+            <input
+              type="text"
+              placeholder="Search by payee, request ID, or department..."
               className="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-xl text-sm focus:ring-2 focus:ring-secondary/20 transition-all outline-none"
             />
           </div>
           <FilterButton label="All Requests" active={filter === 'All'} onClick={() => setFilter('All')} />
           <FilterButton label="Pending" active={filter === 'Pending'} onClick={() => setFilter('Pending')} />
+          <FilterButton label="Draft" active={filter === 'Draft'} onClick={() => setFilter('Draft')} />
           <FilterButton label="Approved" active={filter === 'Approved'} onClick={() => setFilter('Approved')} />
           <FilterButton label="Rejected" active={filter === 'Rejected'} onClick={() => setFilter('Rejected')} />
           <button className="p-2 hover:bg-surface-container-low rounded-xl transition-colors text-on-surface-variant">
@@ -161,7 +173,6 @@ export default function PaymentRequests() {
         </div>
       </div>
 
-      {/* Table */}
       <div className="bg-white rounded-2xl border border-surface-container-high shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
@@ -173,7 +184,7 @@ export default function PaymentRequests() {
                   </div>
                 </th>
                 <th className="px-6 py-4">Vendor / Payee</th>
-                <th className="px-6 py-4">Entity</th>
+                <th className="px-6 py-4">Department</th>
                 <th className="px-6 py-4">Amount</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">Priority</th>
@@ -199,13 +210,13 @@ export default function PaymentRequests() {
                 </tr>
               ) : (
                 filteredRequests.map((item) => (
-                  <tr 
-                    key={item.id} 
+                  <tr
+                    key={item.id}
                     onClick={() => navigate(`/requests/${item.id}`)}
                     className="hover:bg-surface-container-low transition-colors group cursor-pointer"
                   >
                     <td className="px-6 py-4 font-mono text-xs font-bold text-secondary">
-                      {item.id.slice(0, 8).toUpperCase()}
+                      {item.requestNo}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -213,35 +224,32 @@ export default function PaymentRequests() {
                           <Building2 size={16} />
                         </div>
                         <div>
-                          <div className="font-bold text-sm text-on-surface">{item.vendorName}</div>
-                          <div className="text-[10px] text-on-surface-variant font-medium">{item.type || 'Wire Transfer'}</div>
+                          <div className="font-bold text-sm text-on-surface">{item.payeeName}</div>
+                          <div className="text-[10px] text-on-surface-variant font-medium">{item.paymentType}</div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
                       <span className="px-2 py-1 bg-surface-container-high rounded text-[10px] font-bold text-on-surface-variant">
-                        {item.entityId}
+                        {item.departmentId}
                       </span>
                     </td>
                     <td className="px-6 py-4 font-mono font-bold text-sm">
-                      {item.amount.toLocaleString('en-US', { style: 'currency', currency: item.currency })}
+                      {item.totalAmount.toLocaleString('en-US', { style: 'currency', currency: item.currency })}
                     </td>
                     <td className="px-6 py-4">
-                      <span className={cn(
-                        "px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter",
-                        getStatusColor(item.status)
-                      )}>
-                        {item.status}
+                      <span className={cn('px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter', getStatusColor(normalizeBusinessStatusLabel(item.businessStatus)))}>
+                        {normalizeBusinessStatusLabel(item.businessStatus)}
                       </span>
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-1.5">
-                        <div className={cn("w-1.5 h-1.5 rounded-full", getPriorityColor(item.priority))} />
-                        <span className="text-xs font-semibold text-on-surface-variant">{item.priority}</span>
+                        <div className={cn('w-1.5 h-1.5 rounded-full', getPriorityColor(item.priority))} />
+                        <span className="text-xs font-semibold text-on-surface-variant capitalize">{item.priority}</span>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-xs text-on-surface-variant">
-                      {item.createdAt?.toDate ? item.createdAt.toDate().toLocaleDateString() : 'Just now'}
+                      {new Date(item.createdAt).toLocaleDateString()}
                     </td>
                     <td className="px-6 py-4">
                       <button className="p-1.5 hover:bg-surface-container-high rounded-lg transition-colors opacity-0 group-hover:opacity-100">
@@ -259,8 +267,12 @@ export default function PaymentRequests() {
             Showing {filteredRequests.length} of {requests.length} requests
           </p>
           <div className="flex gap-2">
-            <button className="px-3 py-1.5 border border-surface-container-high rounded-lg text-xs font-bold hover:bg-white disabled:opacity-50" disabled>Previous</button>
-            <button className="px-3 py-1.5 border border-surface-container-high rounded-lg text-xs font-bold hover:bg-white disabled:opacity-50" disabled>Next</button>
+            <button className="px-3 py-1.5 border border-surface-container-high rounded-lg text-xs font-bold hover:bg-white disabled:opacity-50" disabled>
+              Previous
+            </button>
+            <button className="px-3 py-1.5 border border-surface-container-high rounded-lg text-xs font-bold hover:bg-white disabled:opacity-50" disabled>
+              Next
+            </button>
           </div>
         </div>
       </div>

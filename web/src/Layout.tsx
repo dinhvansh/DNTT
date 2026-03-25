@@ -23,6 +23,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { useAuth } from './AuthProvider';
+import { toast } from 'sonner';
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
@@ -37,8 +38,53 @@ const navItems = [
 
 export default function Layout() {
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
+  const [authForm, setAuthForm] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    departmentId: 'dep-a',
+    roleCode: 'staff',
+  });
   const location = useLocation();
-  const { user, profile, loading, login, logout } = useAuth();
+  const { user, actor, loading, login, register, logout } = useAuth();
+
+  const updateAuthField = (key: keyof typeof authForm, value: string) => {
+    setAuthForm((current) => ({
+      ...current,
+      [key]: value,
+    }));
+  };
+
+  const handleAuthSubmit = async () => {
+    setIsSubmittingAuth(true);
+    try {
+      if (authMode === 'login') {
+        await login({
+          email: authForm.email,
+          password: authForm.password,
+        });
+        toast.success('Signed in successfully');
+      } else {
+        await register({
+          fullName: authForm.fullName,
+          email: authForm.email,
+          password: authForm.password,
+          departmentId: authForm.departmentId,
+          roleCode: authForm.roleCode,
+        });
+        toast.success('Account created and signed in');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error(authMode === 'login' ? 'Unable to sign in' : 'Unable to create account', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setIsSubmittingAuth(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -54,24 +100,152 @@ export default function Layout() {
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-surface p-6">
-        <div className="max-w-md w-full bg-white rounded-[40px] shadow-2xl p-12 text-center space-y-8 border border-surface-container-high">
+        <div className="max-w-md w-full bg-white rounded-[40px] shadow-2xl p-12 border border-surface-container-high space-y-8">
           <div className="w-20 h-20 bg-secondary/10 text-secondary rounded-3xl flex items-center justify-center mx-auto rotate-3">
             <ShieldCheck size={48} />
           </div>
-          <div className="space-y-2">
+          <div className="space-y-2 text-center">
             <h1 className="text-4xl font-black text-on-surface tracking-tighter leading-none">Sovereign Ledger</h1>
             <p className="text-sm text-on-surface-variant font-medium">Enterprise Payment Governance & Global Finance Control</p>
           </div>
+          <div className="grid grid-cols-2 gap-2 bg-surface-container-low rounded-2xl p-1">
+            <button
+              onClick={() => setAuthMode('login')}
+              className={cn(
+                'rounded-2xl px-4 py-2 text-sm font-bold transition-colors',
+                authMode === 'login' ? 'bg-white text-secondary shadow-sm' : 'text-on-surface-variant'
+              )}
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => setAuthMode('register')}
+              className={cn(
+                'rounded-2xl px-4 py-2 text-sm font-bold transition-colors',
+                authMode === 'register' ? 'bg-white text-secondary shadow-sm' : 'text-on-surface-variant'
+              )}
+            >
+              Register
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {authMode === 'register' && (
+              <div className="space-y-2">
+                <label className="text-[11px] font-black uppercase tracking-widest text-on-surface-variant">Full Name</label>
+                <input
+                  type="text"
+                  value={authForm.fullName}
+                  onChange={(event) => updateAuthField('fullName', event.target.value)}
+                  className="w-full rounded-2xl bg-surface-container-low px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary/20"
+                  placeholder="Nguyen Van A"
+                />
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <label className="text-[11px] font-black uppercase tracking-widest text-on-surface-variant">Email</label>
+              <input
+                type="email"
+                value={authForm.email}
+                onChange={(event) => updateAuthField('email', event.target.value)}
+                className="w-full rounded-2xl bg-surface-container-low px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary/20"
+                placeholder="you@example.com"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-[11px] font-black uppercase tracking-widest text-on-surface-variant">Password</label>
+              <input
+                type="password"
+                value={authForm.password}
+                onChange={(event) => updateAuthField('password', event.target.value)}
+                className="w-full rounded-2xl bg-surface-container-low px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary/20"
+                placeholder="At least 4 characters"
+              />
+            </div>
+
+            {authMode === 'register' && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-on-surface-variant">Department</label>
+                  <select
+                    value={authForm.departmentId}
+                    onChange={(event) => updateAuthField('departmentId', event.target.value)}
+                    className="w-full rounded-2xl bg-surface-container-low px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary/20"
+                  >
+                    <option value="dep-a">dep-a</option>
+                    <option value="dep-b">dep-b</option>
+                    <option value="dep-finance">dep-finance</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[11px] font-black uppercase tracking-widest text-on-surface-variant">Role</label>
+                  <select
+                    value={authForm.roleCode}
+                    onChange={(event) => updateAuthField('roleCode', event.target.value)}
+                    className="w-full rounded-2xl bg-surface-container-low px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-secondary/20"
+                  >
+                    <option value="staff">staff</option>
+                    <option value="manager">manager</option>
+                    <option value="director">director</option>
+                    <option value="finance_operations">finance_operations</option>
+                    <option value="admin">admin</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button
-            onClick={login}
-            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-secondary text-white rounded-2xl font-bold hover:bg-secondary-container transition-all shadow-xl shadow-secondary/20 group"
+            onClick={() => void handleAuthSubmit()}
+            disabled={isSubmittingAuth}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-secondary text-white rounded-2xl font-bold hover:bg-secondary-container transition-all shadow-xl shadow-secondary/20 group disabled:opacity-50"
           >
             <LogIn size={20} className="group-hover:translate-x-1 transition-transform" />
-            Sign in with Corporate Account
+            {isSubmittingAuth
+              ? 'Processing...'
+              : authMode === 'login'
+                ? 'Sign in with Local Account'
+                : 'Create Account'}
           </button>
-          <p className="text-[10px] text-on-surface-variant/50 font-mono uppercase tracking-widest">
-            Secure SSO Authentication Required
+          {authMode === 'login' && (
+            <div className="rounded-2xl bg-surface-container-low p-4 text-xs text-on-surface-variant space-y-1">
+              <p className="font-black uppercase tracking-widest text-[10px] text-secondary">Demo Accounts</p>
+              <p>`requester1@example.com` / `1234`</p>
+              <p>`approver1@example.com` / `1234`</p>
+              <p>`financeops@example.com` / `1234`</p>
+              <p>`sysadmin@example.com` / `1234`</p>
+            </div>
+          )}
+          <p className="text-[10px] text-center text-on-surface-variant/60 font-mono uppercase tracking-widest">
+            Local test access backed by PostgreSQL user records
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!actor) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-surface p-6">
+        <div className="max-w-md w-full bg-white rounded-[40px] shadow-2xl p-12 text-center space-y-8 border border-surface-container-high">
+          <div className="w-20 h-20 bg-red-50 text-red-500 rounded-3xl flex items-center justify-center mx-auto">
+            <ShieldCheck size={48} />
+          </div>
+          <div className="space-y-2">
+            <h1 className="text-2xl font-black text-on-surface tracking-tighter leading-none">Access Not Provisioned</h1>
+            <p className="text-sm text-on-surface-variant font-medium">
+              Your account ({user.email}) is not registered in the system. Please contact your administrator.
+            </p>
+          </div>
+          <button
+            onClick={logout}
+            className="w-full flex items-center justify-center gap-3 px-6 py-4 bg-surface-container-low text-on-surface rounded-2xl font-bold hover:bg-surface-container-high transition-all"
+          >
+            <LogOut size={20} />
+            Sign out
+          </button>
         </div>
       </div>
     );
@@ -156,8 +330,8 @@ export default function Layout() {
             </div>
             {!isCollapsed && (
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-black truncate tracking-tight">{profile?.displayName || user.displayName}</p>
-                <p className="text-[10px] font-bold text-secondary uppercase tracking-tighter">{profile?.role || 'Staff'}</p>
+                <p className="text-xs font-black truncate tracking-tight">{actor?.fullName || user.displayName}</p>
+                <p className="text-[10px] font-bold text-secondary uppercase tracking-tighter">{actor?.departmentId || 'Staff'}</p>
               </div>
             )}
             {!isCollapsed && (
