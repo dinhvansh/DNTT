@@ -1,0 +1,98 @@
+{
+  "entities": {
+    "PaymentRequest": {
+      "title": "Payment Request",
+      "description": "A request for an outbound payment.",
+      "type": "object",
+      "properties": {
+        "vendorId": { "type": "string", "description": "ID of the vendor." },
+        "vendorName": { "type": "string", "description": "Name of the vendor." },
+        "entityId": { "type": "string", "description": "ID of the legal entity." },
+        "amount": { "type": "number", "description": "Payment amount." },
+        "currency": { "type": "string", "description": "Currency code (e.g., USD)." },
+        "status": { "type": "string", "enum": ["Pending", "Approved", "Rejected", "Processing", "Settled"] },
+        "priority": { "type": "string", "enum": ["Low", "Medium", "High", "Critical"] },
+        "requesterUid": { "type": "string", "description": "UID of the user who created the request." },
+        "requesterName": { "type": "string", "description": "Name of the requester." },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "justification": { "type": "string" },
+        "type": { "type": "string", "description": "Payment type (e.g., Wire, ACH)." },
+        "lineItems": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "description": { "type": "string" },
+              "glCode": { "type": "string" },
+              "amount": { "type": "number" }
+            }
+          }
+        }
+      },
+      "required": ["vendorId", "entityId", "amount", "currency", "status", "requesterUid", "createdAt"]
+    },
+    "Vendor": {
+      "title": "Vendor",
+      "description": "A supplier or payee in the master data.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "taxId": { "type": "string" },
+        "category": { "type": "string" },
+        "riskRating": { "type": "string", "enum": ["Low", "Medium", "High"] },
+        "status": { "type": "string", "enum": ["Verified", "Pending", "Blacklisted"] },
+        "bankDetails": {
+          "type": "object",
+          "properties": {
+            "bankName": { "type": "string" },
+            "swift": { "type": "string" },
+            "accountNumber": { "type": "string" },
+            "country": { "type": "string" }
+          }
+        }
+      },
+      "required": ["name", "status"]
+    },
+    "Entity": {
+      "title": "Legal Entity",
+      "description": "A subsidiary or business unit.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "region": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Inactive"] }
+      },
+      "required": ["name", "region", "status"]
+    },
+    "User": {
+      "title": "User Profile",
+      "description": "User account information.",
+      "type": "object",
+      "properties": {
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "director", "manager", "staff"] },
+        "entityId": { "type": "string" }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/paymentRequests/{requestId}": {
+      "schema": "PaymentRequest",
+      "description": "Collection of payment requests."
+    },
+    "/vendors/{vendorId}": {
+      "schema": "Vendor",
+      "description": "Master data for vendors."
+    },
+    "/entities/{entityId}": {
+      "schema": "Entity",
+      "description": "Master data for legal entities."
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and roles."
+    }
+  }
+}

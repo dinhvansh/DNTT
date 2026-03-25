@@ -1,0 +1,139 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId (auth.uid)
+    // Fields:
+    //   - displayName: string (optional)
+    //   - email: string (required)
+    //   - role: string (required, enum: admin, director, manager, staff)
+    //   - entityId: string (optional)
+    //
+    // Collection: paymentRequests
+    // Document ID: requestId (auto-gen)
+    // Fields:
+    //   - vendorId: string (required)
+    //   - vendorName: string (required)
+    //   - entityId: string (required)
+    //   - amount: number (required, positive)
+    //   - currency: string (required)
+    //   - status: string (required, enum: Pending, Approved, Rejected, Processing, Settled)
+    //   - priority: string (required, enum: Low, Medium, High, Critical)
+    //   - requesterUid: string (required, immutable)
+    //   - requesterName: string (required)
+    //   - createdAt: timestamp (required, immutable)
+    //   - justification: string (optional)
+    //   - type: string (optional)
+    //   - lineItems: list (optional)
+    //
+    // Collection: vendors
+    // Document ID: vendorId (auto-gen)
+    // Fields:
+    //   - name: string (required)
+    //   - taxId: string (optional)
+    //   - category: string (optional)
+    //   - riskRating: string (required, enum: Low, Medium, High)
+    //   - status: string (required, enum: Verified, Pending, Blacklisted)
+    //
+    // Collection: entities
+    // Document ID: entityId (auto-gen)
+    // Fields:
+    //   - name: string (required)
+    //   - region: string (required)
+    //   - status: string (required, enum: Active, Inactive)
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "vanqn95@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isDirector() {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'director';
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidUser(data) {
+      return hasRequiredFields(['email', 'role']) &&
+             data.email is string && isValidEmail(data.email) &&
+             data.role in ['admin', 'director', 'manager', 'staff'] &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100));
+    }
+
+    function isValidPaymentRequest(data) {
+      return hasRequiredFields(['vendorId', 'vendorName', 'entityId', 'amount', 'currency', 'status', 'priority', 'requesterUid', 'requesterName', 'createdAt']) &&
+             data.amount is number && data.amount > 0 &&
+             data.status in ['Pending', 'Approved', 'Rejected', 'Processing', 'Settled'] &&
+             data.priority in ['Low', 'Medium', 'High', 'Critical'] &&
+             data.requesterUid is string &&
+             data.vendorName is string && data.vendorName.size() < 200;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role != 'admin' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (isOwner(userId) && request.resource.data.role == resource.data.role || isAdmin());
+    }
+
+    match /paymentRequests/{requestId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidPaymentRequest(request.resource.data) && request.resource.data.requesterUid == request.auth.uid;
+      allow update: if isAuthenticated() && isValidPaymentRequest(request.resource.data) && 
+                    (request.resource.data.requesterUid == resource.data.requesterUid) &&
+                    (isAdmin() || isDirector() || (request.auth.uid == resource.data.requesterUid && resource.data.status == 'Pending'));
+      allow delete: if isAdmin();
+    }
+
+    match /vendors/{vendorId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin() || isDirector();
+    }
+
+    match /entities/{entityId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}
