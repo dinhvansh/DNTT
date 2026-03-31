@@ -7,12 +7,24 @@ export interface SetupUser {
   fullName: string;
   email: string;
   departmentId: string | null;
+  positionCode?: string | null;
+}
+
+export interface SetupPosition {
+  code: string;
+  name: string;
+  isGlobal: boolean;
+  isActive: boolean;
 }
 
 export interface DepartmentApprovalSetup {
   reviewerUserId: string | null;
+  reviewerPositionCode: string | null;
   hodUserId: string | null;
+  hodPositionCode: string | null;
   fallbackUserId: string | null;
+  fallbackPositionCode: string | null;
+  stepOrder: string[];
   effectiveFrom: string | null;
   isActive: boolean;
 }
@@ -27,8 +39,8 @@ export interface ApprovalDepartment {
 
 export interface GlobalApproverConfig {
   companyCode: string;
-  cfoUserId: string | null;
-  ceoUserId: string | null;
+  cfoPositionCode: string | null;
+  ceoPositionCode: string | null;
   cfoAmountThreshold: number | null;
   ceoAmountThreshold: number | null;
   isActive: boolean;
@@ -62,6 +74,7 @@ export async function getApprovalSetup(actor: ApiActorContext) {
     data: {
       departments: ApprovalDepartment[];
       users: SetupUser[];
+      positions: SetupPosition[];
       globalConfig: GlobalApproverConfig | null;
     };
   }>(response);
@@ -87,8 +100,12 @@ export async function updateDepartmentApprovalSetup(
   departmentCode: string,
   input: {
     reviewerUserId: string | null;
+    reviewerPositionCode: string | null;
     hodUserId: string | null;
+    hodPositionCode: string | null;
     fallbackUserId: string | null;
+    fallbackPositionCode: string | null;
+    stepOrder: string[];
   },
   actor: ApiActorContext
 ) {
@@ -106,8 +123,8 @@ export async function updateDepartmentApprovalSetup(
 
 export async function updateGlobalApproverConfig(
   input: {
-    cfoUserId: string | null;
-    ceoUserId: string | null;
+    cfoPositionCode: string | null;
+    ceoPositionCode: string | null;
     cfoAmountThreshold: number | null;
     ceoAmountThreshold: number | null;
   },

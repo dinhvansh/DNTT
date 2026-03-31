@@ -68,3 +68,30 @@ test('GET /api/my-approvals returns empty list for requester without approval pe
     assert.equal(body.total, 0);
   });
 });
+
+test('GET /api/my-approvals keeps finance-rejected request visible for finance worklist', async () => {
+  await withServer(async (baseUrl) => {
+    const rejectResponse = await fetch(`${baseUrl}/api/payment-requests/req-finance-shared/finance-reject`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-user-id': 'finance-ops-1',
+        'x-user-permissions': 'view_finance_scoped,release_to_erp,hold_erp_sync',
+      },
+      body: JSON.stringify({ note: 'Missing supporting documents.' }),
+    });
+
+    assert.equal(rejectResponse.status, 200);
+
+    const inboxResponse = await fetch(`${baseUrl}/api/my-approvals`, {
+      headers: {
+        'x-user-id': 'finance-ops-1',
+        'x-user-permissions': 'view_finance_scoped,release_to_erp,hold_erp_sync',
+      },
+    });
+
+    assert.equal(inboxResponse.status, 200);
+    const body = await inboxResponse.json();
+    assert.ok(body.data.some((entry) => entry.id === 'req-finance-shared'));
+  });
+});

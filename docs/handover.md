@@ -1,65 +1,108 @@
 # Handover
 
-## Mục tiêu dự án
+## Project Goal
 
-Repo này đang chuyển từ prototype Firebase sang kiến trúc:
+This repo is being migrated from a Firebase prototype to a layered stack:
 
-- `web`: React/Vite
+- `web`: React/Vite UI
 - `api`: Node business API
 - `worker`: ERP integration worker
-- `postgres`: source of truth
-- `redis`: queue coordination
+- `postgres`: transactional source of truth
+- `redis`: background coordination
 - `minio`: object storage
-- `docker-compose`: môi trường dev/UAT local
+- `docker-compose`: local dev and UAT stack
 
-Phạm vi hiện tại bám theo:
+Business scope follows:
 
-- [tai_lieu_giai_phap_payment_request_eoffice.md](../tai_lieu_giai_phap_payment_request_eoffice.md)
-- [development-plan.md](./development-plan.md)
+- [solution document](../tai_lieu_giai_phap_payment_request_eoffice.md)
+- [development plan](./development-plan.md)
+- [workflow business rules](./workflow-business-rules.md)
 
-## Trạng thái hiện tại
+## Current Status
 
-Đã làm xong phần lớn của Phase 1 đến Phase 4:
+Most of Phase 1 to Phase 5 is in place:
 
-- local auth để test nhanh, bỏ chốt Google sign-in cũ
-- create draft request
-- save header, detail, attachment metadata
-- submit request
+- local auth for testing, old Google sign-in removed
+- create draft payment request
+- save header, detail, and upload attachments to MinIO
+- submit
 - approve / reject / return / resubmit / cancel
-- workflow chain:
+- reject requires a non-empty reason note
+- fixed workflow chain:
   - `Line Manager -> Reviewer -> HOD -> CFO -> CEO`
-- deduplicate approver
-- delegation trong validity window
-- record-level visibility theo `need-to-know`
+- approver deduplication
+- delegation within validity window
+- record-level visibility
 - finance release queue
+- finance review with:
+  - `Approve Only`
+  - `Reject`
+  - `Approve & Release ERP`
 - `Release to ERP`
 - `Hold Sync`
-- integration jobs + ERP logs + manual retry
+- integration jobs, ERP logs, manual retry
 - worker retry policy
-- approval setup thật:
-  - tạo department
-  - set reviewer / HOD / fallback
-  - set global CFO / CEO + threshold
+- worker reconcile job for ERP anomalies
+- production Dockerfiles and `docker-compose.prod.yml`
+- master-data-first org model:
+  - create `department`
+  - create `position`
+  - assign `user -> department + position + line manager`
+- requester department is derived from user profile
+- approval setup UI and API:
+  - create department
+  - map reviewer / HOD / fallback by direct user mapping
+  - configure local step order for `Line Manager / Reviewer / HOD`
+  - set global CFO / CEO positions and thresholds
+- auditor role seed and view-only coverage
+- audit log APIs:
+  - request-specific audit logs
+  - generic audit log listing for config and request entities
+- PostgreSQL backup and restore scripts
+- attachment binary upload to MinIO is live
+- attachment preview / download from MinIO is live
+- attachment-level visibility is enforced
+  - currently by attachment type, with template-specific override support
+- field masking is enforced
+  - currently covers bank fields and can be controlled per template
+- request templates are now real config objects instead of mock UI
+  - admin can create/update templates
+  - requester can pick a template at request creation
+  - template controls:
+    - request visibility mode
+    - field masking
+    - attachment visibility
+    - required attachment types
+    - detail column visible/required flags
+- print action on request detail is working
+  - prints summary, payment details, attachments, and audit log
+- organization chart screen exists and reads from master data
+- master data now supports:
+  - create / edit / delete user
+  - create / edit / delete department
+  - create / edit / delete position
+  - vendor master
+  - ERP reference master
 
-## Những phần còn dở
+## Remaining Work
 
-Theo plan, phần đáng làm tiếp theo:
+Main items still open in the plan:
 
-1. `Complete test matrix for same department, cross department, delegated approver, finance operations, admin, auditor`
-2. `Full audit coverage`
-3. `Reconcile job`
-4. `Backup and restore PostgreSQL`
-5. `Docker image build for UAT and production`
+No unchecked Phase 0-5 infrastructure item is left in `development-plan.md`.
 
-Ngoài ra còn các phần nghiệp vụ nâng cao chưa làm:
+Business features still not implemented:
+- template-driven dynamic request form
+  - form still does not fully hide/show fields or columns live by template
+- output print layout by template
+- richer org-chart-first workflow refactor if business wants to move away from current hybrid model
+- local register flow is still lightweight and not tied to rich master-data workflows
+- UX polish remains for:
+  - Master Data
+  - Organization Chart
+  - Create Payment Request
+  - Finance Review screens
 
-- upload binary attachment thật lên MinIO
-- attachment-level visibility
-- field masking
-- template config nâng cao
-- master data thật cho user/department quản trị đầy đủ
-
-## Cấu trúc repo
+## Repo Layout
 
 ```text
 .
@@ -72,37 +115,53 @@ Ngoài ra còn các phần nghiệp vụ nâng cao chưa làm:
 `-- README.md
 ```
 
-## Cách chạy local
+## Local Run
 
 ```bash
 docker compose up -d
 ```
 
-Service:
+Services:
 
-- web: `http://localhost:3000`
-- api: `http://localhost:8080`
-- postgres: `localhost:5432`
-- redis: `localhost:6379`
+  - web: `http://localhost:3001`
+  - api: `http://localhost:18081`
+  - postgres: `localhost:5433`
+  - redis: `localhost:6380`
 - minio api: `http://localhost:9000`
 - minio console: `http://localhost:9001`
 
-Nếu muốn reload sạch web/api:
+Force refresh web and api:
 
 ```bash
 docker compose up -d --force-recreate web api
 ```
 
-## Tài khoản test
+## Test Accounts
 
 - `requester1@example.com / 1234`
 - `approver1@example.com / 1234`
 - `financeops@example.com / 1234`
 - `sysadmin@example.com / 1234`
+- `auditor1@example.com / 1234`
 
-`sysadmin` có quyền `manage_department_setup`.
+Notes:
 
-## Lệnh test quan trọng
+- `sysadmin` can manage approval setup.
+- `auditor` is view-only and can access audit logs.
+
+If Docker/PostgreSQL was already running before the auditor seed change, apply:
+
+```bash
+docker compose exec -T postgres psql -U payment_app -d payment_request < db/manual/2026-03-26_seed_auditor.sql
+```
+
+If Docker/PostgreSQL was already running before the `department + position + user` refactor, apply:
+
+```bash
+docker compose exec -T postgres psql -U payment_app -d payment_request < db/manual/2026-03-26_positions_refactor.sql
+```
+
+## Important Commands
 
 Backend:
 
@@ -116,118 +175,190 @@ Worker:
 node --test worker/tests/*.mjs
 ```
 
-Frontend lint/build:
+Frontend lint and build:
 
 ```bash
 npm run lint
 npm run build
 ```
 
-## Các file quan trọng
+## Important Files
 
 ### Backend
 
 - [api/src/server.mjs](../api/src/server.mjs)
-  API routes chính
+  Main HTTP routes
 - [api/src/security/authorization.mjs](../api/src/security/authorization.mjs)
-  rule permission và visibility
+  Permission, request visibility, attachment visibility, and field masking rules
 - [api/src/data/postgresRepository.mjs](../api/src/data/postgresRepository.mjs)
-  business persistence thật trên PostgreSQL
+  PostgreSQL persistence, workflow resolution, template persistence
 - [api/src/data/fixtureRepository.mjs](../api/src/data/fixtureRepository.mjs)
-  fixture mode cho test route
+  Fixture mode for tests, template defaults
+- [api/src/data/defaultTemplates.mjs](../api/src/data/defaultTemplates.mjs)
+  Default template definitions
 - [db/init/001_core.sql](../db/init/001_core.sql)
-  schema
+  Core schema
 - [db/init/002_seed.sql](../db/init/002_seed.sql)
-  seed data và role permissions
+  Seed data and role permissions
 
 ### Frontend
 
 - [web/src/AuthProvider.tsx](../web/src/AuthProvider.tsx)
-  local auth test flow
+  Local auth test flow
 - [web/src/api/paymentRequests.ts](../web/src/api/paymentRequests.ts)
-  client cho request/approval/ERP
+  Request, approval, ERP, audit, and workflow preview client
 - [web/src/api/approvalSetup.ts](../web/src/api/approvalSetup.ts)
-  client cho approval setup
+  Approval setup client
+- [web/src/api/masterData.ts](../web/src/api/masterData.ts)
+  Master data, vendor, ERP reference, and sync client
+- [web/src/api/templates.ts](../web/src/api/templates.ts)
+  Request template admin client
 - [web/src/ApprovalSetup.tsx](../web/src/ApprovalSetup.tsx)
-  màn hình approval setup thật
+  Approval setup screen with direct user mapping and local step order
+- [web/src/MasterData.tsx](../web/src/MasterData.tsx)
+  User, department, position, role, and line-manager setup
+- [web/src/OrganizationChart.tsx](../web/src/OrganizationChart.tsx)
+  Organization structure view from department + position + line manager data
+- [web/src/ERPReferenceMaster.tsx](../web/src/ERPReferenceMaster.tsx)
+  ERP reference list, bulk import, filters, and sync history
+- [web/src/Templates.tsx](../web/src/Templates.tsx)
+  Real template admin editor
 - [web/src/CreatePaymentRequest.tsx](../web/src/CreatePaymentRequest.tsx)
-  create draft + submit
+  Draft create and submit with requester-derived department, ERP refs, workflow preview, template selection
 - [web/src/PaymentRequestDetail.tsx](../web/src/PaymentRequestDetail.tsx)
-  detail actions
+  Detail actions, finance review actions, audit timeline, print, attachment preview/download
 - [web/src/ERPIntegrationLog.tsx](../web/src/ERPIntegrationLog.tsx)
-  finance release / retry
+  Finance review, release, retry, readiness summary, error category, idempotency info
 
 ### Worker
 
 - [worker/src/worker.mjs](../worker/src/worker.mjs)
-  polling + process ERP jobs
+  Polling, ERP processing, webhook publish
 - [worker/src/policy.mjs](../worker/src/policy.mjs)
-  retry policy
+  Retry policy and error classification
+- [worker/src/reconcile.mjs](../worker/src/reconcile.mjs)
+  Reconcile logic for ERP anomalies
 
-## Những chỗ dễ vỡ
+## Fragile Areas
 
-### 1. Permission
+### 1. Permissions
 
-Đây là vùng rủi ro cao nhất. Mọi thay đổi permission cần:
+This is the highest-risk area. Any permission change needs:
 
 - happy-path test
 - access denied test
 - wrong-role test
-- same-department test nếu liên quan
-- delegated test nếu liên quan
+- same-department test when relevant
+- delegated test when relevant
 
 ### 2. Approval Setup
 
-`ApprovalSetup.tsx` từng bị nháy liên tục do `actorContext` bị tạo mới mỗi render. Hiện đã fix bằng `useMemo`.
+`ApprovalSetup.tsx` previously flickered because `actorContext` was recreated on every render.
+It was fixed with `useMemo`.
 
-Nếu màn này lại có dấu hiệu reload vô hạn, kiểm tra trước:
+If that screen starts looping again, check:
 
-- dependency array của `useEffect`
-- object/function có bị tạo mới mỗi render không
-- state có đang reset vòng lặp không
+- `useEffect` dependency arrays
+- recreated objects/functions on render
+- state reset loops after fetch
 
-### 3. PostgreSQL runtime vs fixture mode
+### 3. PostgreSQL Runtime vs Fixture Mode
 
-Test route mặc định đang pass trên fixture mode, nhưng smoke test runtime cần kiểm riêng trên Docker/PostgreSQL.
+Route tests pass in fixture mode by default. Runtime smoke tests on Docker/PostgreSQL still matter.
 
-Đừng chỉ tin test fixture nếu đổi query SQL hoặc persistence flow.
+Do not trust fixture tests alone after changing:
 
-### 4. Department approval setup
+- SQL queries
+- transaction flow
+- setup persistence
+- audit log persistence
+- worker reconcile queries
 
-Bảng `department_approval_setup` hiện không có unique key trên `department_id`, nên repository đang làm `select existing -> update/insert` thay vì `ON CONFLICT (department_id)`.
+### 4. Department Approval Setup
 
-Nếu sau này muốn cleanup, có thể:
+`department_approval_setup` currently behaves as direct user mapping first:
 
-- thêm unique constraint phù hợp
-- viết migration rõ ràng
-- rồi mới đổi code sang upsert chuẩn
+- `reviewer_user_id`
+- `hod_user_id`
+- `fallback_user_id`
 
-## Smoke test nên chạy sau mỗi nhịp lớn
+position-based fallback logic still exists in repository, but active business setup should be treated as direct-user-first.
 
-1. đăng nhập `requester1`
-2. tạo request draft
-3. submit
-4. đăng nhập approver để approve
-5. đi hết chain cho request lớn nếu sửa workflow logic
-6. đăng nhập `financeops` để release/hold/retry nếu sửa ERP path
-7. đăng nhập `sysadmin` để kiểm tra `Approval Setup` nếu sửa config path
+If this area is cleaned up later:
 
-## Thứ tự nên làm tiếp
+- add an explicit migration
+- add the right unique constraint
+- then simplify repository upsert logic
 
-Khuyến nghị cho người tiếp theo:
+### 5. Templates
 
-1. hoàn tất `Permission Test Matrix` còn thiếu, nhất là `auditor`
-2. phủ `audit_logs` cho các config action còn thiếu
-3. làm `reconcile job`
-4. làm `Master Data` thật cho user/department nếu muốn bỏ seed-config thủ công
-5. sau đó mới mở rộng template/attachment upload
+Templates now affect runtime request behavior. When debugging request detail visibility:
 
-## Git / nhánh
+- check `templateCode`
+- check `templateFormSchema.fieldMasking`
+- check `templateAttachmentRules.visibilityByType`
 
-Lần bàn giao này code đã được push lên:
+If a fixture request is behaving oddly, confirm it is enriched with a default template in `fixtureRepository`.
 
-- `origin/main`
-- `origin/master`
+## Smoke Tests After Major Changes
 
-README đã được viết lại ở commit gần nhất cùng với handover này.
+1. Sign in as `requester1`
+2. Create a draft request
+3. Submit it
+4. Sign in as the next approver and approve
+5. Walk the full chain for a high-value request if workflow logic changed
+6. Sign in as `financeops` and test release / hold / retry if ERP path changed
+7. Sign in as `sysadmin` and verify `Approval Setup` if config path changed
+8. Sign in as `auditor` and verify:
+   - request list is visible
+   - no mutation actions are available
+   - `/api/audit-logs` and request audit timeline still work
+9. Sign in as `sysadmin` and verify:
+   - `Templates` page can create or update a template
+   - `Create Request` can select the template
+10. Sign in as requester/department viewer/finance and verify:
+   - bank fields mask correctly
+   - attachment visibility changes according to template
 
+## Current Business Flow Notes
+
+- all approval steps may reject
+- every reject action must include a reason note
+- reject without note is blocked in UI and API
+- workflow scope should follow `workflow-business-rules.md` before adding new escalation or self-approval exceptions
+- setup order is now:
+  - create department
+  - create position
+  - create user
+  - assign department + position + line manager
+  - map reviewer / HOD / fallback by direct user mapping
+- requester now selects a request template at create time
+- template drives request visibility defaults and sensitive field/attachment behavior
+- after business approval is complete, Finance reviews before ERP sync
+- Finance should open request detail first, then choose:
+  - `Approve Only`
+  - `Reject`
+  - `Approve & Release ERP`
+  - `Hold Sync`
+
+## Recommended Next Steps
+
+1. Make create-request form truly dynamic by template
+2. Add template-specific print/output layout
+3. Continue polishing Master Data and Organization Chart UX
+4. Revisit org-chart-first workflow refactor only after business confirms the model
+
+## Git State
+
+Recent baseline commits already pushed:
+
+- `1f01940` `refactor app into web api worker stack`
+- `a53e6d4` `docs: rewrite repository readme`
+- `d83db3c` `docs: add handover notes`
+
+State in this handover assumes a newer local commit after those baseline commits.
+Night-shift dev should pull latest `master` or `main` before continuing.
+
+See also:
+
+- [business flow requirement](./business-flow-requirement.md)

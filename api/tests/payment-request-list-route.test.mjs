@@ -25,7 +25,7 @@ test('GET /api/payment-requests returns 401 when actor headers are missing', asy
   });
 });
 
-test('GET /api/payment-requests returns only related requests for requester', async () => {
+test('GET /api/payment-requests returns only requests created by the requester', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/payment-requests`, {
       headers: {
@@ -40,7 +40,7 @@ test('GET /api/payment-requests returns only related requests for requester', as
   });
 });
 
-test('GET /api/payment-requests includes same-department records when allowed by visibility and permission', async () => {
+test('GET /api/payment-requests does not include same-department records for non-requester actor', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/payment-requests`, {
       headers: {
@@ -52,11 +52,11 @@ test('GET /api/payment-requests includes same-department records when allowed by
 
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.deepEqual(body.data.map((entry) => entry.id), ['req-same-department']);
+    assert.deepEqual(body.data.map((entry) => entry.id), []);
   });
 });
 
-test('GET /api/payment-requests includes finance shared records for finance scope actor', async () => {
+test('GET /api/payment-requests does not include finance queue records for finance scope actor', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/payment-requests`, {
       headers: {
@@ -67,11 +67,11 @@ test('GET /api/payment-requests includes finance shared records for finance scop
 
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.deepEqual(body.data.map((entry) => entry.id), ['req-finance-shared']);
+    assert.deepEqual(body.data.map((entry) => entry.id), []);
   });
 });
 
-test('GET /api/payment-requests returns all records for admin', async () => {
+test('GET /api/payment-requests returns only admin-created requests for admin actor', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/payment-requests`, {
       headers: {
@@ -82,6 +82,22 @@ test('GET /api/payment-requests returns all records for admin', async () => {
 
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.equal(body.total, 3);
+    assert.equal(body.total, 0);
+  });
+});
+
+test('GET /api/payment-requests returns no records for auditor when auditor did not create requests', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/payment-requests`, {
+      headers: {
+        'x-user-id': 'auditor-1',
+        'x-user-department': 'dep-finance',
+        'x-user-permissions': 'view_all_requests,view_audit_entries',
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.total, 0);
   });
 });

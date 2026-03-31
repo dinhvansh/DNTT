@@ -70,6 +70,7 @@ const FIXTURE_USERS = [
   { email: 'approver2@example.com', userId: 'approver-2', fullName: 'Approver Two', departmentId: 'dep-b', permissions: ['approve_request', 'view_department_requests'] },
   { email: 'financeops@example.com', userId: 'finance-ops-1', fullName: 'Finance Operations', departmentId: 'dep-finance', permissions: ['view_finance_scoped', 'release_to_erp', 'hold_erp_sync', 'retry_erp_push'] },
   { email: 'sysadmin@example.com', userId: 'sys-admin', fullName: 'System Admin', departmentId: 'dep-finance', permissions: ['view_all_requests', 'approve_request', 'release_to_erp', 'hold_erp_sync', 'retry_erp_push'] },
+  { email: 'auditor1@example.com', userId: 'auditor-1', fullName: 'Internal Auditor', departmentId: 'dep-finance', permissions: ['view_all_requests', 'view_audit_entries'] },
   { email: 'ceo1@example.com', userId: 'ceo-1', fullName: 'Chief Executive Officer', departmentId: 'dep-finance', permissions: ['approve_request', 'view_department_requests'] },
 ];
 
@@ -91,7 +92,7 @@ function mapDepartmentCodeToUuid(departmentId) {
 }
 
 function normalizeRoleCode(roleCode) {
-  const allowedRoles = new Set(['staff', 'manager', 'director', 'finance_operations', 'admin']);
+  const allowedRoles = new Set(['staff', 'manager', 'director', 'finance_operations', 'admin', 'auditor']);
   return allowedRoles.has(roleCode) ? roleCode : 'staff';
 }
 
@@ -102,6 +103,8 @@ function getPermissionsForRole(roleCode) {
       return ['approve_request', 'view_department_requests', 'create_request', 'edit_own_draft', 'submit_request', 'cancel_request'];
     case 'finance_operations':
       return ['view_finance_scoped', 'release_to_erp', 'hold_erp_sync', 'retry_erp_push'];
+    case 'auditor':
+      return ['view_all_requests', 'view_audit_entries'];
     case 'admin':
       return ['view_all_requests', 'approve_request', 'release_to_erp', 'hold_erp_sync', 'retry_erp_push', 'create_request', 'edit_own_draft', 'submit_request', 'cancel_request', 'manage_department_setup'];
     default:

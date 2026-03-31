@@ -115,8 +115,8 @@ export default function PaymentRequests() {
     <div className="space-y-8 max-w-[1600px] mx-auto">
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-3xl font-black text-on-surface tracking-tighter mb-2">Payment Ledger</h1>
-          <p className="text-on-surface-variant font-medium">Manage and track all outbound payment lifecycle events.</p>
+          <h1 className="text-3xl font-black text-on-surface tracking-tighter mb-2">My Payment Requests</h1>
+          <p className="text-on-surface-variant font-medium">Track only the requests you created. Approval and finance worklists live in their own menus.</p>
         </div>
         <div className="flex gap-3">
           <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-container-high rounded-xl text-sm font-semibold hover:bg-surface-container-low transition-colors">
@@ -136,7 +136,7 @@ export default function PaymentRequests() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         {[
           { label: 'Total Volume', value: `$${requests.reduce((acc, item) => acc + item.totalAmount, 0).toLocaleString()}`, icon: CreditCard, color: 'text-blue-600' },
-          { label: 'Pending Review', value: requests.filter((item) => normalizeBusinessStatusLabel(item.businessStatus) === 'Pending').length, icon: Clock, color: 'text-amber-600' },
+          { label: 'Pending Approval', value: requests.filter((item) => normalizeBusinessStatusLabel(item.businessStatus) === 'Pending').length, icon: Clock, color: 'text-amber-600' },
           { label: 'Approved', value: requests.filter((item) => normalizeBusinessStatusLabel(item.businessStatus) === 'Approved').length, icon: CheckCircle2, color: 'text-green-600' },
           { label: 'Rejected', value: requests.filter((item) => normalizeBusinessStatusLabel(item.businessStatus) === 'Rejected').length, icon: XCircle, color: 'text-red-600' },
         ].map((stat, index) => (
@@ -204,8 +204,8 @@ export default function PaymentRequests() {
                 </tr>
               ) : filteredRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center">
-                    <p className="text-sm font-medium text-on-surface-variant">No payment requests found.</p>
+              <td colSpan={8} className="px-6 py-12 text-center">
+                    <p className="text-sm font-medium text-on-surface-variant">No requests created by this user.</p>
                   </td>
                 </tr>
               ) : (
@@ -264,7 +264,7 @@ export default function PaymentRequests() {
         </div>
         <div className="p-4 border-t border-surface-container-high flex items-center justify-between bg-surface-container-low/30">
           <p className="text-xs text-on-surface-variant font-medium">
-            Showing {filteredRequests.length} of {requests.length} requests
+            Showing {filteredRequests.length} of {requests.length} requests you created
           </p>
           <div className="flex gap-2">
             <button className="px-3 py-1.5 border border-surface-container-high rounded-lg text-xs font-bold hover:bg-white disabled:opacity-50" disabled>

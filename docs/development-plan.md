@@ -18,6 +18,7 @@
 - Every permission rule needs a negative test, not only a happy-path test.
 - Business status and ERP status must remain separate.
 - ERP jobs are created only after `Release to ERP`.
+- Workflow scope should follow [workflow-business-rules](./workflow-business-rules.md) before adding new exception logic.
 
 ## Delivery Phases
 
@@ -34,8 +35,11 @@
 - [x] Apply `need-to-know` visibility on request read APIs
 - [x] Apply action permissions for submit, approve, reject, return, cancel
 - [x] Apply permissions for `release_to_erp`, `hold_erp_sync`, `retry_erp_push`
+- [x] Enforce mandatory reject note on reject actions
 - [x] Create admin approval setup APIs for department mapping and global CFO/CEO config
-- [ ] Complete test matrix for same department, cross department, delegated approver, finance operations, admin, auditor
+- [x] Refactor approval mapping to `department + position + user` model
+- [x] Add view-only auditor coverage to permission matrix
+- [x] Complete test matrix for same department, cross department, delegated approver, finance operations, admin, auditor
 
 ### Phase 2. Payment Request MVP
 - [x] Create draft request
@@ -57,6 +61,7 @@
 ### Phase 4. ERP Release And Integration
 - [x] `Approved -> Waiting Finance Release`
 - [x] Finance worklist
+- [x] Finance review with `Approve Only`
 - [x] `Release to ERP`
 - [x] `Hold Sync`
 - [x] Create integration job on finance release
@@ -64,11 +69,11 @@
 - [x] ERP logs and manual retry UI
 
 ### Phase 5. Hardening
-- [ ] Full audit coverage
-- [ ] Reconcile job
+- [x] Full audit coverage
+- [x] Reconcile job
 - [x] Seed data for UAT-style permission checks
-- [ ] Backup and restore PostgreSQL
-- [ ] Docker image build for UAT and production
+- [x] Backup and restore PostgreSQL
+- [x] Docker image build for UAT and production
 
 ## Mandatory Checklist For Each Change
 - [ ] Business requirement mapped back to the solution document
@@ -95,13 +100,16 @@
 - [x] Admin can view all requests
 - [x] Approve action advances request to next step or final approved state
 - [x] Reject action closes request and clears pending approvers
+- [x] Reject action is blocked when the reason note is missing
 - [x] Release to ERP creates `integration_jobs` and `audit_logs`
 - [x] Hold Sync keeps request in finance queue with proper permission checks
+- [x] Finance can open request detail before review action
 - [x] ERP jobs list only appears for finance/admin scoped actors
 - [x] Retry action is blocked for actors without `retry_erp_push`
 - [x] Worker processes pending ERP jobs and writes `erp_push_logs`
 - [x] Worker schedules automatic retries before `manual_review_required`
 - [x] Approver can return a request and requester alone can resubmit it
+- [x] Auditor can view requests without mutation actions
 
 ## Current Iteration
 - [x] Lock architecture to Docker + PostgreSQL
@@ -132,6 +140,14 @@
 - [x] Align request lifecycle to `Draft -> Pending Approval` with explicit submit action
 - [x] Resolve configured approval chain with deduplicate and CFO/CEO thresholds
 - [x] Wire Approval Setup screen to backend APIs for department and global approver config
+- [x] Expose audit log APIs for payment requests and configuration changes
+- [x] Add worker reconcile logic for ERP anomalies and recovery
+- [x] Add PostgreSQL backup and restore scripts for local/UAT
+- [x] Add production Dockerfiles and production compose stack
+- [x] Write business flow requirement document for current MVP behavior
+- [x] Add setup flow guide for `department -> position -> user -> approval setup`
+- [x] Derive requester department from user profile instead of request form input
+- [x] Support controlled local step order for `Line Manager / Reviewer / HOD`
 
 ## Latest Verification
 - [x] `node --test api/tests/*.mjs`
@@ -146,3 +162,5 @@
 - [x] Runtime PostgreSQL smoke test for `draft -> submit -> first approver`
 - [x] Runtime PostgreSQL smoke test for ordered `LM -> Reviewer -> HOD -> CFO -> CEO` chain
 - [x] Runtime PostgreSQL smoke test for approval setup read, create department, and save department/global approver config
+- [x] API tests cover payment request and configuration audit log access for admin and auditor
+- [x] API tests block reject without note and allow reject with note

@@ -5,7 +5,8 @@ VALUES
   ('00000000-0000-0000-0000-000000000003', 'manager', 'Manager', TRUE),
   ('00000000-0000-0000-0000-000000000004', 'finance_operations', 'Finance Operations', TRUE),
   ('00000000-0000-0000-0000-000000000005', 'erp_integration_admin', 'ERP Integration Admin', TRUE),
-  ('00000000-0000-0000-0000-000000000006', 'staff', 'Staff', TRUE)
+  ('00000000-0000-0000-0000-000000000006', 'staff', 'Staff', TRUE),
+  ('00000000-0000-0000-0000-000000000007', 'auditor', 'Auditor', TRUE)
 ON CONFLICT (role_code) DO NOTHING;
 
 INSERT INTO role_permissions (role_code, permission_code)
@@ -40,6 +41,8 @@ VALUES
   ('finance_operations', 'release_to_erp'),
   ('finance_operations', 'hold_erp_sync'),
   ('finance_operations', 'retry_erp_push'),
+  ('auditor', 'view_all_requests'),
+  ('auditor', 'view_audit_entries'),
   ('staff', 'create_request'),
   ('staff', 'edit_own_draft'),
   ('staff', 'submit_request'),
@@ -54,22 +57,54 @@ VALUES
   ('10000000-0000-0000-0000-000000000003', 'dep-finance', 'Finance Operations')
 ON CONFLICT (department_code) DO NOTHING;
 
-INSERT INTO users (user_id, employee_code, full_name, email, department_id, line_manager_id, identity_subject, is_active)
+INSERT INTO positions (position_id, position_code, position_name, is_global, is_active)
 VALUES
-  ('20000000-0000-0000-0000-000000000001', 'E001', 'Nguyen Van A', 'requester1@example.com', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000004', 'requester-1', TRUE),
-  ('20000000-0000-0000-0000-000000000002', 'E002', 'Tran Thi B', 'requester2@example.com', '10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000005', 'requester-2', TRUE),
-  ('20000000-0000-0000-0000-000000000003', 'E003', 'Le Thi C', 'requester3@example.com', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000006', 'requester-3', TRUE),
-  ('20000000-0000-0000-0000-000000000004', 'E004', 'Approver One', 'approver1@example.com', '10000000-0000-0000-0000-000000000001', NULL, 'approver-1', TRUE),
-  ('20000000-0000-0000-0000-000000000005', 'E005', 'Approver Two', 'approver2@example.com', '10000000-0000-0000-0000-000000000002', NULL, 'approver-2', TRUE),
-  ('20000000-0000-0000-0000-000000000006', 'E006', 'Approver Three', 'approver3@example.com', '10000000-0000-0000-0000-000000000001', NULL, 'approver-3', TRUE),
-  ('20000000-0000-0000-0000-000000000007', 'E007', 'Head Of Department', 'hod1@example.com', '10000000-0000-0000-0000-000000000001', NULL, 'hod-1', TRUE),
-  ('20000000-0000-0000-0000-000000000008', 'E008', 'Delegate User', 'delegate1@example.com', '10000000-0000-0000-0000-000000000001', NULL, 'delegate-1', TRUE),
-  ('20000000-0000-0000-0000-000000000009', 'E009', 'Finance Operations', 'financeops@example.com', '10000000-0000-0000-0000-000000000003', NULL, 'finance-ops-1', TRUE),
-  ('20000000-0000-0000-0000-000000000010', 'E010', 'System Admin', 'sysadmin@example.com', '10000000-0000-0000-0000-000000000003', NULL, 'sys-admin', TRUE),
-  ('20000000-0000-0000-0000-000000000011', 'E011', 'Department Member', 'departmentmember@example.com', '10000000-0000-0000-0000-000000000001', NULL, 'department-member', TRUE),
-  ('20000000-0000-0000-0000-000000000012', 'E012', 'Random User', 'randomuser@example.com', '10000000-0000-0000-0000-000000000001', NULL, 'random-user', TRUE),
-  ('20000000-0000-0000-0000-000000000013', 'E013', 'Chief Finance Officer', 'cfo1@example.com', '10000000-0000-0000-0000-000000000003', NULL, 'cfo-1', TRUE),
-  ('20000000-0000-0000-0000-000000000014', 'E014', 'Chief Executive Officer', 'ceo1@example.com', '10000000-0000-0000-0000-000000000003', NULL, 'ceo-1', TRUE)
+  ('15000000-0000-0000-0000-000000000001', 'staff', 'Staff', FALSE, TRUE),
+  ('15000000-0000-0000-0000-000000000002', 'line_manager', 'Line Manager', FALSE, TRUE),
+  ('15000000-0000-0000-0000-000000000003', 'reviewer', 'Reviewer', FALSE, TRUE),
+  ('15000000-0000-0000-0000-000000000004', 'hod', 'Head Of Department', FALSE, TRUE),
+  ('15000000-0000-0000-0000-000000000005', 'finance_operations', 'Finance Operations', TRUE, TRUE),
+  ('15000000-0000-0000-0000-000000000006', 'auditor', 'Auditor', TRUE, TRUE),
+  ('15000000-0000-0000-0000-000000000007', 'system_admin', 'System Admin', TRUE, TRUE),
+  ('15000000-0000-0000-0000-000000000008', 'cfo', 'Chief Financial Officer', TRUE, TRUE),
+  ('15000000-0000-0000-0000-000000000009', 'ceo', 'Chief Executive Officer', TRUE, TRUE)
+ON CONFLICT (position_code) DO NOTHING;
+
+INSERT INTO vendors (
+  vendor_id,
+  vendor_code,
+  vendor_name,
+  currency,
+  bank_account_name,
+  bank_account_number,
+  bank_name,
+  sync_source,
+  last_synced_at,
+  is_active
+)
+VALUES
+  ('16000000-0000-0000-0000-000000000001', 'VEND-GLI', 'Global Logistics Inc.', 'VND', 'Global Logistics Inc.', '001122334455', 'ACB', 'manual', NOW(), TRUE),
+  ('16000000-0000-0000-0000-000000000002', 'VEND-AWS', 'Amazon Web Services', 'USD', 'Amazon Web Services', '998877665544', 'HSBC', 'erp_seed', NOW(), TRUE),
+  ('16000000-0000-0000-0000-000000000003', 'VEND-VTX', 'Vertex Tax Solutions', 'VND', 'Vertex Tax Solutions', '112233445566', 'VCB', 'erp_seed', NOW(), TRUE)
+ON CONFLICT (vendor_code) DO NOTHING;
+
+INSERT INTO users (user_id, employee_code, full_name, email, department_id, position_id, line_manager_id, identity_subject, is_active)
+VALUES
+  ('20000000-0000-0000-0000-000000000001', 'E001', 'Nguyen Van A', 'requester1@example.com', '10000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000004', 'requester-1', TRUE),
+  ('20000000-0000-0000-0000-000000000002', 'E002', 'Tran Thi B', 'requester2@example.com', '10000000-0000-0000-0000-000000000002', '15000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000005', 'requester-2', TRUE),
+  ('20000000-0000-0000-0000-000000000003', 'E003', 'Le Thi C', 'requester3@example.com', '10000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000006', 'requester-3', TRUE),
+  ('20000000-0000-0000-0000-000000000004', 'E004', 'Approver One', 'approver1@example.com', '10000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000002', NULL, 'approver-1', TRUE),
+  ('20000000-0000-0000-0000-000000000005', 'E005', 'Approver Two', 'approver2@example.com', '10000000-0000-0000-0000-000000000002', '15000000-0000-0000-0000-000000000003', NULL, 'approver-2', TRUE),
+  ('20000000-0000-0000-0000-000000000006', 'E006', 'Approver Three', 'approver3@example.com', '10000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000003', NULL, 'approver-3', TRUE),
+  ('20000000-0000-0000-0000-000000000007', 'E007', 'Head Of Department', 'hod1@example.com', '10000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000004', NULL, 'hod-1', TRUE),
+  ('20000000-0000-0000-0000-000000000008', 'E008', 'Delegate User', 'delegate1@example.com', '10000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000001', NULL, 'delegate-1', TRUE),
+  ('20000000-0000-0000-0000-000000000009', 'E009', 'Finance Operations', 'financeops@example.com', '10000000-0000-0000-0000-000000000003', '15000000-0000-0000-0000-000000000005', NULL, 'finance-ops-1', TRUE),
+  ('20000000-0000-0000-0000-000000000010', 'E010', 'System Admin', 'sysadmin@example.com', '10000000-0000-0000-0000-000000000003', '15000000-0000-0000-0000-000000000007', NULL, 'sys-admin', TRUE),
+  ('20000000-0000-0000-0000-000000000011', 'E011', 'Department Member', 'departmentmember@example.com', '10000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000001', NULL, 'department-member', TRUE),
+  ('20000000-0000-0000-0000-000000000012', 'E012', 'Random User', 'randomuser@example.com', '10000000-0000-0000-0000-000000000001', '15000000-0000-0000-0000-000000000001', NULL, 'random-user', TRUE),
+  ('20000000-0000-0000-0000-000000000013', 'E013', 'Chief Finance Officer', 'cfo1@example.com', '10000000-0000-0000-0000-000000000003', '15000000-0000-0000-0000-000000000008', NULL, 'cfo-1', TRUE),
+  ('20000000-0000-0000-0000-000000000014', 'E014', 'Chief Executive Officer', 'ceo1@example.com', '10000000-0000-0000-0000-000000000003', '15000000-0000-0000-0000-000000000009', NULL, 'ceo-1', TRUE),
+  ('20000000-0000-0000-0000-000000000015', 'E015', 'Internal Auditor', 'auditor1@example.com', '10000000-0000-0000-0000-000000000003', '15000000-0000-0000-0000-000000000006', NULL, 'auditor-1', TRUE)
 ON CONFLICT (email) DO NOTHING;
 
 INSERT INTO user_roles (user_id, role_code)
@@ -87,12 +122,17 @@ VALUES
   ('20000000-0000-0000-0000-000000000011', 'staff'),
   ('20000000-0000-0000-0000-000000000012', 'staff'),
   ('20000000-0000-0000-0000-000000000013', 'director'),
-  ('20000000-0000-0000-0000-000000000014', 'director')
+  ('20000000-0000-0000-0000-000000000014', 'director'),
+  ('20000000-0000-0000-0000-000000000015', 'auditor')
 ON CONFLICT (user_id, role_code) DO NOTHING;
 
 INSERT INTO department_approval_setup (
   department_approval_setup_id,
   department_id,
+  reviewer_position_id,
+  hod_position_id,
+  fallback_position_id,
+  step_order_json,
   reviewer_user_id,
   hod_user_id,
   fallback_user_id,
@@ -103,6 +143,10 @@ VALUES
   (
     '31000000-0000-0000-0000-000000000001',
     '10000000-0000-0000-0000-000000000001',
+    '15000000-0000-0000-0000-000000000003',
+    '15000000-0000-0000-0000-000000000004',
+    NULL,
+    '["line_manager","reviewer","hod"]'::jsonb,
     '20000000-0000-0000-0000-000000000006',
     '20000000-0000-0000-0000-000000000007',
     NULL,
@@ -112,6 +156,10 @@ VALUES
   (
     '31000000-0000-0000-0000-000000000002',
     '10000000-0000-0000-0000-000000000002',
+    '15000000-0000-0000-0000-000000000003',
+    '15000000-0000-0000-0000-000000000004',
+    NULL,
+    '["reviewer","line_manager","hod"]'::jsonb,
     '20000000-0000-0000-0000-000000000005',
     '20000000-0000-0000-0000-000000000005',
     NULL,
@@ -123,6 +171,8 @@ ON CONFLICT (department_approval_setup_id) DO NOTHING;
 INSERT INTO global_approver_config (
   global_approver_config_id,
   company_code,
+  cfo_position_id,
+  ceo_position_id,
   cfo_user_id,
   ceo_user_id,
   cfo_amount_threshold,
@@ -133,6 +183,8 @@ VALUES
   (
     '32000000-0000-0000-0000-000000000001',
     'default',
+    '15000000-0000-0000-0000-000000000008',
+    '15000000-0000-0000-0000-000000000009',
     '20000000-0000-0000-0000-000000000013',
     '20000000-0000-0000-0000-000000000014',
     500000,
@@ -271,3 +323,39 @@ VALUES
   ('60000000-0000-0000-0000-000000000004', '50000000-0000-0000-0000-000000000002', 2, 'cfo', '20000000-0000-0000-0000-000000000013', '20000000-0000-0000-0000-000000000013', 'approved'),
   ('60000000-0000-0000-0000-000000000005', '50000000-0000-0000-0000-000000000003', 1, 'reviewer', '20000000-0000-0000-0000-000000000006', NULL, 'pending')
 ON CONFLICT (workflow_instance_id, step_no) DO NOTHING;
+
+INSERT INTO erp_reference_values (
+  erp_reference_value_id,
+  reference_type,
+  reference_code,
+  reference_name,
+  parent_code,
+  currency,
+  metadata_json,
+  sync_source,
+  last_synced_at,
+  is_active
+)
+VALUES
+  ('80000000-0000-0000-0000-000000000001', 'expense_type', 'service_fee', 'Service Fee', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000002', 'expense_type', 'vendor_invoice', 'Vendor Invoice', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000003', 'expense_type', 'tax_payment', 'Tax Payment', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000004', 'expense_type', 'travel_expense', 'Travel Expense', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000005', 'expense_type', 'advance_settlement', 'Advance Settlement', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000006', 'gl_account', '6100-IT', 'IT Service Expense', NULL, 'VND', '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000007', 'gl_account', '6200-OPS', 'Operations Expense', NULL, 'VND', '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000008', 'gl_account', '6300-TAX', 'Tax Expense', NULL, 'VND', '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000009', 'cost_center', 'CC-OPS', 'Operations Cost Center', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000010', 'cost_center', 'CC-FIN', 'Finance Cost Center', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000011', 'project', 'PRJ-DNTT', 'DNTT Transformation Program', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE),
+  ('80000000-0000-0000-0000-000000000012', 'project', 'PRJ-ERP', 'ERP Stabilization', NULL, NULL, '{}'::jsonb, 'seed', NOW(), TRUE)
+ON CONFLICT (reference_type, reference_code) DO UPDATE
+SET
+  reference_name = EXCLUDED.reference_name,
+  parent_code = EXCLUDED.parent_code,
+  currency = EXCLUDED.currency,
+  metadata_json = EXCLUDED.metadata_json,
+  sync_source = EXCLUDED.sync_source,
+  last_synced_at = EXCLUDED.last_synced_at,
+  is_active = EXCLUDED.is_active,
+  updated_at = NOW();

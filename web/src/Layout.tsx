@@ -8,6 +8,7 @@ import {
   Settings, 
   Users, 
   FileStack, 
+  BookMarked,
   LogOut, 
   Search, 
   Bell, 
@@ -18,7 +19,8 @@ import {
   Activity,
   LogIn,
   X,
-  History
+  History,
+  GitBranch
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -26,14 +28,54 @@ import { useAuth } from './AuthProvider';
 import { toast } from 'sonner';
 
 const navItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: FileText, label: 'Payment Requests', path: '/requests' },
-  { icon: CheckSquare, label: 'My Approvals', path: '/approvals' },
-  { icon: History, label: 'ERP Integration Log', path: '/erp-log' },
-  { icon: Database, label: 'Master Data', path: '/master-data' },
-  { icon: Settings, label: 'Approval Setup', path: '/setup' },
-  { icon: Users, label: 'Delegation', path: '/delegation' },
-  { icon: FileStack, label: 'Templates', path: '/templates' },
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/', show: () => true },
+  {
+    icon: FileText,
+    label: 'Payment Requests',
+    path: '/requests',
+    show: (permissions: string[]) =>
+      ['create_request', 'edit_own_draft', 'submit_request', 'cancel_request'].some((permission) => permissions.includes(permission)),
+  },
+  {
+    icon: CheckSquare,
+    label: 'My Approvals',
+    path: '/approvals',
+    show: (permissions: string[]) =>
+      ['approve_request', 'release_to_erp', 'hold_erp_sync'].some((permission) => permissions.includes(permission)),
+  },
+  {
+    icon: History,
+    label: 'ERP Integration Log',
+    path: '/erp-log',
+    show: (permissions: string[]) =>
+      ['view_finance_scoped', 'release_to_erp', 'hold_erp_sync', 'retry_erp_push'].some((permission) => permissions.includes(permission)),
+  },
+  {
+    icon: Database,
+    label: 'Master Data',
+    path: '/master-data',
+    show: (permissions: string[]) => permissions.includes('manage_department_setup'),
+  },
+  {
+    icon: GitBranch,
+    label: 'Organization Chart',
+    path: '/organization-chart',
+    show: (permissions: string[]) => permissions.includes('manage_department_setup'),
+  },
+  {
+    icon: BookMarked,
+    label: 'ERP Reference Master',
+    path: '/erp-reference-master',
+    show: (permissions: string[]) => permissions.includes('manage_department_setup'),
+  },
+  {
+    icon: Settings,
+    label: 'Approval Setup',
+    path: '/setup',
+    show: (permissions: string[]) => permissions.includes('manage_department_setup'),
+  },
+  { icon: Users, label: 'Delegation', path: '/delegation', show: () => true },
+  { icon: FileStack, label: 'Templates', path: '/templates', show: () => true },
 ];
 
 export default function Layout() {
@@ -49,6 +91,7 @@ export default function Layout() {
   });
   const location = useLocation();
   const { user, actor, loading, login, register, logout } = useAuth();
+  const visibleNavItems = navItems.filter((item) => item.show(actor?.permissions ?? []));
 
   const updateAuthField = (key: keyof typeof authForm, value: string) => {
     setAuthForm((current) => ({
@@ -190,6 +233,7 @@ export default function Layout() {
                     <option value="manager">manager</option>
                     <option value="director">director</option>
                     <option value="finance_operations">finance_operations</option>
+                    <option value="auditor">auditor</option>
                     <option value="admin">admin</option>
                   </select>
                 </div>
@@ -215,6 +259,7 @@ export default function Layout() {
               <p>`requester1@example.com` / `1234`</p>
               <p>`approver1@example.com` / `1234`</p>
               <p>`financeops@example.com` / `1234`</p>
+              <p>`auditor1@example.com` / `1234`</p>
               <p>`sysadmin@example.com` / `1234`</p>
             </div>
           )}
@@ -278,7 +323,7 @@ export default function Layout() {
 
         {/* Navigation */}
         <nav className="flex-1 py-6 px-3 space-y-1 overflow-y-auto">
-          {navItems.map((item) => {
+          {visibleNavItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <Link

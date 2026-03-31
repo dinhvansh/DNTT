@@ -36,8 +36,9 @@ test('GET /api/erp-jobs returns jobs for finance operations', async () => {
 
     assert.equal(response.status, 200);
     const body = await response.json();
-    assert.equal(body.total, 1);
-    assert.equal(body.data[0].allowedActions?.retry, true);
+    assert.equal(body.total, 2);
+    const transientJob = body.data.find((entry) => entry.id === 'job-fixture-failed-001');
+    assert.equal(transientJob.allowedActions?.retry, true);
   });
 });
 
@@ -81,5 +82,22 @@ test('POST /api/erp-jobs/:id/retry returns 403 for actor without retry permissio
     });
 
     assert.equal(response.status, 403);
+  });
+});
+
+test('GET /api/erp-jobs marks business-error jobs as non-retriable', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/erp-jobs`, {
+      headers: {
+        'x-user-id': 'finance-ops-1',
+        'x-user-permissions': 'retry_erp_push,release_to_erp',
+      },
+    });
+
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    const businessJob = body.data.find((entry) => entry.id === 'job-fixture-business-001');
+    assert.equal(businessJob.errorCategory, 'business');
+    assert.equal(businessJob.allowedActions?.retry, false);
   });
 });

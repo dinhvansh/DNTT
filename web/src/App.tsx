@@ -10,6 +10,8 @@ import PaymentRequestDetail from './PaymentRequestDetail';
 import ERPIntegrationLog from './ERPIntegrationLog';
 import ApprovalSetup from './ApprovalSetup';
 import MasterData from './MasterData';
+import OrganizationChart from './OrganizationChart';
+import ERPReferenceMaster from './ERPReferenceMaster';
 import Delegation from './Delegation';
 import Templates from './Templates';
 import { AuthProvider } from './AuthProvider';
@@ -31,6 +33,8 @@ export default function App() {
               <Route path="erp-log" element={<ERPIntegrationLog />} />
               <Route path="setup" element={<ApprovalSetup />} />
               <Route path="master-data" element={<MasterData />} />
+              <Route path="organization-chart" element={<OrganizationChart />} />
+              <Route path="erp-reference-master" element={<ERPReferenceMaster />} />
               <Route path="delegation" element={<Delegation />} />
               <Route path="templates" element={<Templates />} />
             </Route>

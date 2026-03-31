@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import {
   RefreshCcw,
   AlertCircle,
@@ -10,13 +10,17 @@ import {
   ChevronRight,
   PauseCircle,
   Send,
+  Eye,
 } from 'lucide-react';
 import { motion } from 'motion/react';
+import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { cn } from './lib/utils';
 import { useAuth } from './AuthProvider';
 import {
   createActorContext,
+  financeApprovePaymentRequest,
+  financeRejectPaymentRequest,
   holdPaymentRequestSync,
   listErpJobs,
   listFinanceReleaseQueue,
@@ -41,6 +45,17 @@ function getJobStatusColor(status: string) {
   }
 }
 
+function getCategoryBadgeStyles(errorCategory: string | null | undefined) {
+  switch (errorCategory) {
+    case 'business':
+      return 'bg-red-50 text-red-700 border-red-200';
+    case 'transient':
+      return 'bg-amber-50 text-amber-700 border-amber-200';
+    default:
+      return 'bg-surface-container-low text-on-surface-variant border-surface-container-high';
+  }
+}
+
 function getJobIcon(status: string) {
   switch (status) {
     case 'success':
@@ -54,12 +69,15 @@ function getJobIcon(status: string) {
 }
 
 export default function ERPIntegrationLog() {
+  const navigate = useNavigate();
   const { actor: authActor } = useAuth();
   const [financeQueue, setFinanceQueue] = useState<PaymentRequestSummary[]>([]);
   const [jobs, setJobs] = useState<ErpIntegrationJob[]>([]);
   const [loading, setLoading] = useState(true);
   const [actingId, setActingId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [readinessFilter, setReadinessFilter] = useState<'all' | 'ready' | 'not_ready'>('all');
+  const [jobErrorFilter, setJobErrorFilter] = useState<'all' | 'transient' | 'business' | 'none'>('all');
 
   const actor = useMemo(() => {
     if (!authActor) {
@@ -126,6 +144,30 @@ export default function ERPIntegrationLog() {
     }
   };
 
+  const handleFinanceApprove = async (requestId: string) => {
+    if (!actor) {
+      return;
+    }
+
+    setActingId(requestId);
+    try {
+      const result = await financeApprovePaymentRequest(requestId, actor);
+      setFinanceQueue((current) =>
+        current.map((entry) => (entry.id === requestId ? result.data : entry))
+      );
+      toast.success('Finance approved request', {
+        description: `${result.data.requestNo} is approved by finance and kept for later ERP release.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to finance-approve request', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setActingId(null);
+    }
+  };
+
   const handleHold = async (requestId: string) => {
     if (!actor) {
       return;
@@ -143,6 +185,34 @@ export default function ERPIntegrationLog() {
     } catch (error) {
       console.error(error);
       toast.error('Unable to hold ERP sync', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setActingId(null);
+    }
+  };
+
+  const handleFinanceReject = async (requestId: string) => {
+    if (!actor) {
+      return;
+    }
+
+    const note = window.prompt('Finance reject reason is required. Enter the reason for rejection:')?.trim() ?? '';
+    if (!note) {
+      toast.error('Finance reject reason is required.');
+      return;
+    }
+
+    setActingId(requestId);
+    try {
+      const result = await financeRejectPaymentRequest(requestId, actor, note);
+      setFinanceQueue((current) => current.filter((entry) => entry.id !== requestId));
+      toast.success('Finance rejected request', {
+        description: `${result.data.requestNo} has been rejected by finance.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to finance-reject request', {
         description: error instanceof Error ? error.message : 'Unknown error',
       });
     } finally {
@@ -174,13 +244,26 @@ export default function ERPIntegrationLog() {
 
   const filteredJobs = jobs.filter((job) => {
     const needle = search.trim().toLowerCase();
-    if (!needle) {
-      return true;
-    }
-
-    return [job.id, job.requestNo, job.status, job.lastError]
+    const matchesSearch = !needle || [job.id, job.requestNo, job.status, job.lastError, job.errorCategory, job.idempotencyKey]
       .filter(Boolean)
       .some((value) => String(value).toLowerCase().includes(needle));
+    const matchesErrorFilter =
+      jobErrorFilter === 'all' ||
+      (jobErrorFilter === 'none' ? !job.errorCategory : job.errorCategory === jobErrorFilter);
+
+    return matchesSearch && matchesErrorFilter;
+  });
+
+  const filteredFinanceQueue = financeQueue.filter((entry) => {
+    if (readinessFilter === 'ready') {
+      return entry.erpReadinessSummary?.isReady === true;
+    }
+
+    if (readinessFilter === 'not_ready') {
+      return entry.erpReadinessSummary?.isReady === false;
+    }
+
+    return true;
   });
 
   return (
@@ -221,17 +304,26 @@ export default function ERPIntegrationLog() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-xl font-black tracking-tight">Finance Release Queue</h2>
-            <p className="text-sm text-on-surface-variant">Approved requests waiting for finance release or currently held.</p>
+            <p className="text-sm text-on-surface-variant">Open the full request detail for document review, then approve only or approve and release to ERP.</p>
           </div>
+          <select
+            value={readinessFilter}
+            onChange={(event) => setReadinessFilter(event.target.value as 'all' | 'ready' | 'not_ready')}
+            className="rounded-xl border border-surface-container-high bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider outline-none"
+          >
+            <option value="all">All readiness</option>
+            <option value="ready">Ready only</option>
+            <option value="not_ready">Need fixes</option>
+          </select>
         </div>
 
         {loading ? (
           <div className="text-sm text-on-surface-variant">Loading finance queue...</div>
-        ) : financeQueue.length === 0 ? (
+        ) : filteredFinanceQueue.length === 0 ? (
           <div className="rounded-2xl bg-surface-container-low p-6 text-sm text-on-surface-variant">No requests currently waiting for finance action.</div>
         ) : (
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-            {financeQueue.map((entry, index) => (
+            {filteredFinanceQueue.map((entry, index) => (
               <motion.div
                 key={entry.id}
                 initial={{ opacity: 0, y: 8 }}
@@ -251,34 +343,79 @@ export default function ERPIntegrationLog() {
                       ? 'bg-red-50 text-red-700'
                       : 'bg-amber-50 text-amber-700'
                   )}>
-                    {entry.erpSyncStatus.replace(/_/g, ' ')}
+                    {entry.erpSyncStatus === 'waiting_finance_release'
+                      ? 'waiting finance review'
+                      : entry.erpSyncStatus.replace(/_/g, ' ')}
                   </span>
                 </div>
 
-                <div className="flex items-center justify-between text-sm">
-                  <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Amount</p>
-                    <p className="font-bold">
-                      {entry.totalAmount.toLocaleString('en-US', { style: 'currency', currency: entry.currency })}
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => void handleHold(entry.id)}
-                      disabled={actingId === entry.id || !entry.allowedActions?.holdSync}
-                      className="px-4 py-2 rounded-xl bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 disabled:opacity-50"
-                    >
+                <div className="flex flex-wrap items-start justify-between gap-4 text-sm">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">Amount</p>
+                      <p className="font-bold">
+                        {entry.totalAmount.toLocaleString('en-US', { style: 'currency', currency: entry.currency })}
+                      </p>
+                    </div>
+                    <div className="min-w-[240px] rounded-2xl border border-surface-container-high bg-surface-container-low px-4 py-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant">
+                        ERP Readiness
+                      </p>
+                      <p
+                        className={cn(
+                          'text-sm font-bold',
+                          entry.erpReadinessSummary?.isReady ? 'text-green-700' : 'text-red-700'
+                        )}
+                      >
+                        {entry.erpReadinessSummary?.isReady
+                          ? 'Ready for release'
+                          : `${entry.erpReadinessSummary?.errorCount ?? 0} issue(s)`}
+                      </p>
+                      {!entry.erpReadinessSummary?.isReady && entry.erpReadinessSummary?.firstErrorMessage ? (
+                        <p className="mt-1 text-[11px] text-red-700">
+                          {entry.erpReadinessSummary.firstErrorMessage}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="flex flex-wrap gap-2 justify-end">
+                      <button
+                        onClick={() => navigate(`/requests/${entry.id}`)}
+                        className="px-4 py-2 rounded-xl bg-white border border-surface-container-high text-xs font-bold hover:bg-surface-container-low"
+                      >
+                        <span className="inline-flex items-center gap-2">
+                          <Eye size={14} />
+                          Open Detail
+                        </span>
+                      </button>
+                      <button
+                        onClick={() => void handleFinanceApprove(entry.id)}
+                        disabled={actingId === entry.id || !entry.allowedActions?.financeApprove}
+                        className="px-4 py-2 rounded-xl bg-amber-50 text-amber-700 text-xs font-bold hover:bg-amber-100 disabled:opacity-50"
+                      >
+                        Approve Only
+                      </button>
+                      <button
+                        onClick={() => void handleFinanceReject(entry.id)}
+                        disabled={actingId === entry.id || !entry.allowedActions?.financeReject}
+                        className="px-4 py-2 rounded-xl bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 disabled:opacity-50"
+                      >
+                        Reject
+                      </button>
+                      <button
+                        onClick={() => void handleHold(entry.id)}
+                        disabled={actingId === entry.id || !entry.allowedActions?.holdSync}
+                        className="px-4 py-2 rounded-xl bg-red-50 text-red-700 text-xs font-bold hover:bg-red-100 disabled:opacity-50"
+                      >
                       Hold Sync
                     </button>
                     <button
-                      onClick={() => void handleRelease(entry.id)}
-                      disabled={actingId === entry.id || !entry.allowedActions?.releaseToErp}
-                      className="px-4 py-2 rounded-xl bg-secondary text-white text-xs font-bold hover:bg-secondary-container disabled:opacity-50"
-                    >
-                      Release to ERP
-                    </button>
+                        onClick={() => void handleRelease(entry.id)}
+                        disabled={actingId === entry.id || !entry.allowedActions?.releaseToErp}
+                        className="px-4 py-2 rounded-xl bg-secondary text-white text-xs font-bold hover:bg-secondary-container disabled:opacity-50"
+                      >
+                        Approve & Release ERP
+                      </button>
+                    </div>
                   </div>
-                </div>
               </motion.div>
             ))}
           </div>
@@ -291,15 +428,27 @@ export default function ERPIntegrationLog() {
             <h2 className="text-xl font-black tracking-tight">ERP Jobs</h2>
             <p className="text-sm text-on-surface-variant">Integration jobs created by finance release and retry actions.</p>
           </div>
-          <div className="relative w-full max-w-md">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
-            <input
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search by job id, request no, or status..."
-              className="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-xl text-sm focus:ring-2 focus:ring-secondary/20 transition-all outline-none"
-            />
+          <div className="flex w-full max-w-3xl items-center gap-3">
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant" size={18} />
+              <input
+                type="text"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by job id, request no, or status..."
+                className="w-full pl-10 pr-4 py-2 bg-surface-container-low border-none rounded-xl text-sm focus:ring-2 focus:ring-secondary/20 transition-all outline-none"
+              />
+            </div>
+            <select
+              value={jobErrorFilter}
+              onChange={(event) => setJobErrorFilter(event.target.value as 'all' | 'transient' | 'business' | 'none')}
+              className="rounded-xl border border-surface-container-high bg-white px-3 py-2 text-xs font-bold uppercase tracking-wider outline-none"
+            >
+              <option value="all">All error types</option>
+              <option value="transient">Transient only</option>
+              <option value="business">Business only</option>
+              <option value="none">No error type</option>
+            </select>
           </div>
         </div>
 
@@ -311,6 +460,7 @@ export default function ERPIntegrationLog() {
                 <th className="px-6 py-4">Request</th>
                 <th className="px-6 py-4">Target</th>
                 <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">Error Type</th>
                 <th className="px-6 py-4">Retries</th>
                 <th className="px-6 py-4">Last Error</th>
                 <th className="px-6 py-4"></th>
@@ -319,16 +469,21 @@ export default function ERPIntegrationLog() {
             <tbody className="divide-y divide-surface-container-high">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-on-surface-variant">Loading ERP jobs...</td>
+                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-on-surface-variant">Loading ERP jobs...</td>
                 </tr>
               ) : filteredJobs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-sm text-on-surface-variant">No ERP jobs visible for current actor.</td>
+                  <td colSpan={8} className="px-6 py-12 text-center text-sm text-on-surface-variant">No ERP jobs visible for current actor.</td>
                 </tr>
               ) : (
                 filteredJobs.map((job) => (
                   <tr key={job.id} className="hover:bg-surface-container-low transition-colors">
-                    <td className="px-6 py-4 font-mono text-xs font-bold text-secondary">{job.id}</td>
+                    <td className="px-6 py-4">
+                      <div className="font-mono text-xs font-bold text-secondary">{job.id}</div>
+                      <div className="mt-1 text-[10px] text-on-surface-variant break-all">
+                        {job.idempotencyKey ?? 'No idempotency key'}
+                      </div>
+                    </td>
                     <td className="px-6 py-4">
                       <div className="font-bold text-sm">{job.requestNo ?? 'Detached Job'}</div>
                       <div className="text-[10px] text-on-surface-variant">{job.requestId ?? 'No request reference'}</div>
@@ -347,6 +502,16 @@ export default function ERPIntegrationLog() {
                         </span>
                       </div>
                     </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={cn(
+                          'inline-flex rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest',
+                          getCategoryBadgeStyles(job.errorCategory)
+                        )}
+                      >
+                        {job.errorCategory ?? 'none'}
+                      </span>
+                    </td>
                     <td className="px-6 py-4 text-sm font-bold">{job.retryCount}</td>
                     <td className="px-6 py-4 text-xs text-on-surface-variant max-w-xs">
                       {job.lastError ?? 'No error recorded'}
@@ -356,9 +521,19 @@ export default function ERPIntegrationLog() {
                         onClick={() => void handleRetry(job.id)}
                         disabled={actingId === job.id || !job.allowedActions?.retry}
                         className="px-3 py-1.5 bg-white border border-surface-container-high rounded-lg text-[10px] font-black uppercase tracking-tighter hover:bg-surface-container-low transition-colors disabled:opacity-50"
+                        title={
+                          job.errorCategory === 'business'
+                            ? 'Business/master-data errors must be fixed before retry.'
+                            : undefined
+                        }
                       >
                         Retry
                       </button>
+                      {job.errorCategory === 'business' ? (
+                        <p className="mt-2 max-w-[180px] text-[10px] font-medium text-red-700">
+                          Fix ERP reference data first. Auto/manual retry is blocked for business errors.
+                        </p>
+                      ) : null}
                     </td>
                   </tr>
                 ))
@@ -416,8 +591,8 @@ export default function ERPIntegrationLog() {
                 <ChevronRight size={16} />
               </button>
               <div className="w-full py-3 bg-white/10 rounded-xl text-xs font-bold px-6 flex items-center justify-between">
-                Current Visible Jobs
-                <span>{jobs.length}</span>
+                Queue Ready For Review
+                <span>{financeQueue.length}</span>
               </div>
             </div>
           </div>
@@ -427,3 +602,4 @@ export default function ERPIntegrationLog() {
     </div>
   );
 }
+

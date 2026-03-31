@@ -19,6 +19,57 @@ export function hasPermission(actor, permissionCode) {
   return Boolean(actor?.permissions?.includes(permissionCode));
 }
 
+function getActorAccessScopes({ actor, request, delegations = [], now = new Date() }) {
+  const scopes = new Set();
+
+  if (!actor || !request) {
+    return scopes;
+  }
+
+  if (actor.id === request.requesterId) {
+    scopes.add('requester');
+  }
+
+  const relatedIds = getRelatedUserIds({ request, delegations, now });
+  if (relatedIds.has(actor.id)) {
+    scopes.add('workflow_related');
+  }
+
+  if (
+    actor.departmentId &&
+    actor.departmentId === request.departmentId &&
+    hasPermission(actor, 'view_department_requests')
+  ) {
+    scopes.add('department_viewer');
+  }
+
+  if (
+    hasPermission(actor, 'view_finance_scoped') ||
+    hasPermission(actor, 'release_to_erp') ||
+    hasPermission(actor, 'hold_erp_sync') ||
+    hasPermission(actor, 'retry_erp_push')
+  ) {
+    scopes.add('finance');
+  }
+
+  if (
+    hasPermission(actor, 'view_all_requests') ||
+    hasPermission(actor, 'manage_department_setup')
+  ) {
+    scopes.add('admin');
+  }
+
+  return scopes;
+}
+
+function isTemplateScopeAllowed(visibleTo, actorScopes) {
+  if (!Array.isArray(visibleTo) || visibleTo.length === 0) {
+    return false;
+  }
+
+  return visibleTo.some((scope) => actorScopes.has(scope));
+}
+
 function parseDate(input) {
   return input instanceof Date ? input : new Date(input);
 }
@@ -121,7 +172,86 @@ export function canViewRequest({ actor, request, delegations = [], now = new Dat
     return true;
   }
 
+  if (
+    hasPermission(actor, 'view_finance_scoped') &&
+    (
+      request.businessStatus === 'approved' ||
+      request.businessStatus === 'rejected' ||
+      ERP_RELEASE_ALLOWED_STATUSES.has(request.erpSyncStatus) ||
+      ERP_RETRY_ALLOWED_STATUSES.has(request.erpSyncStatus) ||
+      request.erpSyncStatus === 'processing' ||
+      request.erpSyncStatus === 'success'
+    )
+  ) {
+    return true;
+  }
+
   return false;
+}
+
+export function canViewSensitiveFinanceData({
+  actor,
+  request,
+  delegations = [],
+  now = new Date(),
+  fieldName = 'bankAccountNumber',
+}) {
+  if (!actor || !request) {
+    return false;
+  }
+
+  if (!canViewRequest({ actor, request, delegations, now })) {
+    return false;
+  }
+
+  const fieldMasking = request.templateFormSchema?.fieldMasking?.[fieldName];
+  if (fieldMasking) {
+    if (fieldMasking.enabled !== true) {
+      return true;
+    }
+
+    const actorScopes = getActorAccessScopes({ actor, request, delegations, now });
+    return isTemplateScopeAllowed(fieldMasking.visibleTo, actorScopes);
+  }
+
+  if (hasPermission(actor, 'view_all_requests')) {
+    return true;
+  }
+
+  if (hasPermission(actor, 'view_finance_scoped')) {
+    return true;
+  }
+
+  const relatedIds = getRelatedUserIds({ request, delegations, now });
+  return relatedIds.has(actor.id);
+}
+
+export function canViewAttachment({ actor, request, attachment, delegations = [], now = new Date() }) {
+  if (!canViewRequest({ actor, request, delegations, now })) {
+    return false;
+  }
+
+  const attachmentRule =
+    request?.templateAttachmentRules?.visibilityByType?.[String(attachment?.attachmentType ?? '').toLowerCase()] ??
+    request?.templateAttachmentRules?.visibilityByType?.[attachment?.attachmentType];
+
+  if (attachmentRule) {
+    const actorScopes = getActorAccessScopes({ actor, request, delegations, now });
+    return isTemplateScopeAllowed(attachmentRule.visibleTo, actorScopes);
+  }
+
+  const sensitiveAttachmentTypes = new Set([
+    'bank_proof',
+    'bank_statement',
+    'id_document',
+    'bank_support',
+  ]);
+
+  if (!sensitiveAttachmentTypes.has(String(attachment?.attachmentType ?? '').toLowerCase())) {
+    return true;
+  }
+
+  return canViewSensitiveFinanceData({ actor, request, delegations, now });
 }
 
 export function canApproveRequest({ actor, request, delegations = [], now = new Date() }) {
@@ -205,6 +335,26 @@ export function canReleaseToErp({ actor, request }) {
   return hasPermission(actor, 'release_to_erp');
 }
 
+export function canFinanceApprove({ actor, request }) {
+  if (!actor || !request) {
+    return false;
+  }
+
+  if (request.businessStatus !== 'approved') {
+    return false;
+  }
+
+  if (!ERP_RELEASE_ALLOWED_STATUSES.has(request.erpSyncStatus)) {
+    return false;
+  }
+
+  return hasPermission(actor, 'hold_erp_sync') || hasPermission(actor, 'release_to_erp');
+}
+
+export function canFinanceReject({ actor, request }) {
+  return canFinanceApprove({ actor, request });
+}
+
 export function canHoldErpSync({ actor, request }) {
   if (!actor || !request) {
     return false;
@@ -231,4 +381,8 @@ export function canRetryErpPush({ actor, request }) {
 
 export function canManageDepartmentSetup(actor) {
   return hasPermission(actor, 'manage_department_setup');
+}
+
+export function canViewAuditEntries(actor) {
+  return hasPermission(actor, 'view_audit_entries') || hasPermission(actor, 'view_all_requests');
 }

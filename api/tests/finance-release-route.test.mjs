@@ -37,6 +37,8 @@ test('GET /api/finance-release-queue returns approved waiting-finance records fo
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.deepEqual(body.data.map((entry) => entry.id), ['req-finance-shared']);
+    assert.equal(body.data[0].erpReadinessSummary.isReady, false);
+    assert.match(body.data[0].erpReadinessSummary.firstErrorMessage, /detail line/i);
   });
 });
 

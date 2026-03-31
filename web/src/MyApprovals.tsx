@@ -14,8 +14,12 @@ import { useAuth } from './AuthProvider';
 import {
   approvePaymentRequest,
   createActorContext,
+  financeApprovePaymentRequest,
+  financeRejectPaymentRequest,
+  holdPaymentRequestSync,
   listMyApprovals,
   rejectPaymentRequest,
+  releasePaymentRequestToErp,
 } from './api/paymentRequests';
 import type { PaymentRequestSummary } from './types/paymentRequest';
 
@@ -87,9 +91,15 @@ export default function MyApprovals() {
       return;
     }
 
+    const note = window.prompt('Reject reason is required. Enter the reason for rejection:')?.trim() ?? '';
+    if (!note) {
+      toast.error('Reject reason is required.');
+      return;
+    }
+
     setActingRequestId(requestId);
     try {
-      const result = await rejectPaymentRequest(requestId, actor);
+      const result = await rejectPaymentRequest(requestId, actor, note);
       setApprovals((current) => current.filter((item) => item.id !== requestId));
       toast.success('Request rejected', {
         description: `${result.data.requestNo} was removed from your inbox.`,
@@ -104,15 +114,118 @@ export default function MyApprovals() {
     }
   };
 
+  const handleFinanceApprove = async (requestId: string) => {
+    if (!actor) {
+      return;
+    }
+
+    setActingRequestId(requestId);
+    try {
+      const result = await financeApprovePaymentRequest(requestId, actor);
+      setApprovals((current) => current.map((item) => (item.id === requestId ? result.data : item)));
+      toast.success('Finance approved request', {
+        description: `${result.data.requestNo} remains in finance worklist for ERP follow-up.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to finance-approve request', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setActingRequestId(null);
+    }
+  };
+
+  const handleFinanceReject = async (requestId: string) => {
+    if (!actor) {
+      return;
+    }
+
+    const note = window.prompt('Finance reject reason is required. Enter the reason for rejection:')?.trim() ?? '';
+    if (!note) {
+      toast.error('Finance reject reason is required.');
+      return;
+    }
+
+    setActingRequestId(requestId);
+    try {
+      const result = await financeRejectPaymentRequest(requestId, actor, note);
+      setApprovals((current) => current.map((item) => (item.id === requestId ? result.data : item)));
+      toast.success('Finance rejected request', {
+        description: `${result.data.requestNo} remains visible for finance follow-up and audit trace.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to finance-reject request', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setActingRequestId(null);
+    }
+  };
+
+  const handleHold = async (requestId: string) => {
+    if (!actor) {
+      return;
+    }
+
+    setActingRequestId(requestId);
+    try {
+      const result = await holdPaymentRequestSync(requestId, actor);
+      setApprovals((current) => current.map((item) => (item.id === requestId ? result.data : item)));
+      toast.success('ERP sync placed on hold', {
+        description: `${result.data.requestNo} stays in finance worklist.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to hold ERP sync', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setActingRequestId(null);
+    }
+  };
+
+  const handleRelease = async (requestId: string) => {
+    if (!actor) {
+      return;
+    }
+
+    setActingRequestId(requestId);
+    try {
+      const result = await releasePaymentRequestToErp(requestId, actor);
+      setApprovals((current) => current.map((item) => (item.id === requestId ? result.data : item)));
+      toast.success('Released to ERP queue', {
+        description: `${result.data.requestNo} remains visible while ERP processing continues.`,
+      });
+    } catch (error) {
+      console.error(error);
+      toast.error('Unable to release request to ERP', {
+        description: error instanceof Error ? error.message : 'Unknown error',
+      });
+    } finally {
+      setActingRequestId(null);
+    }
+  };
+
   const totalValue = approvals.reduce((sum, item) => sum + item.totalAmount, 0);
   const criticalCount = approvals.filter((item) => item.priority === 'critical').length;
+  const pendingCount = approvals.filter(
+    (item) =>
+      item.allowedActions?.approve ||
+      item.allowedActions?.reject ||
+      item.allowedActions?.financeApprove ||
+      item.allowedActions?.financeReject ||
+      item.allowedActions?.releaseToErp ||
+      item.allowedActions?.holdSync
+  ).length;
 
   return (
     <div className="space-y-8 max-w-[1600px] mx-auto">
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-3xl font-black text-on-surface tracking-tighter mb-2">My Approvals</h1>
-          <p className="text-on-surface-variant font-medium">Review and authorize pending payment requests assigned to you.</p>
+          <p className="text-on-surface-variant font-medium">Review business approvals and finance actions assigned to your current role.</p>
         </div>
         <div className="flex gap-3">
           <button className="flex items-center gap-2 px-4 py-2 bg-white border border-surface-container-high rounded-xl text-sm font-semibold hover:bg-surface-container-low transition-colors">
@@ -130,7 +243,7 @@ export default function MyApprovals() {
             </div>
             <div>
               <p className="text-on-surface-variant text-sm font-medium">Pending Action</p>
-              <h3 className="text-2xl font-bold">{approvals.length} Requests</h3>
+              <h3 className="text-2xl font-bold">{pendingCount} Requests</h3>
             </div>
           </div>
           <div className="flex items-center gap-2 text-xs font-bold text-amber-700 bg-amber-50 px-3 py-2 rounded-lg">
@@ -173,9 +286,9 @@ export default function MyApprovals() {
       <div className="bg-white rounded-2xl border border-surface-container-high shadow-sm overflow-hidden">
         <div className="p-6 border-b border-surface-container-high flex items-center justify-between">
           <div className="flex gap-6">
-            <button className="text-sm font-bold text-secondary border-b-2 border-secondary pb-6 -mb-6">
-              Pending ({approvals.length})
-            </button>
+              <button className="text-sm font-bold text-secondary border-b-2 border-secondary pb-6 -mb-6">
+              Worklist ({approvals.length})
+              </button>
           </div>
         </div>
 
@@ -186,6 +299,31 @@ export default function MyApprovals() {
             <div className="p-10 text-center text-sm text-on-surface-variant">No approvals assigned to you.</div>
           ) : (
             approvals.map((item) => (
+              (() => {
+                const hasPendingActions = Boolean(
+                  item.allowedActions?.approve ||
+                    item.allowedActions?.reject ||
+                    item.allowedActions?.financeApprove ||
+                    item.allowedActions?.financeReject ||
+                    item.allowedActions?.releaseToErp ||
+                    item.allowedActions?.holdSync
+                );
+                const outcomeLabel =
+                  item.businessStatus === 'rejected'
+                    ? 'Rejected'
+                    : item.erpSyncStatus === 'success'
+                      ? 'ERP Synced'
+                      : item.erpSyncStatus === 'processing'
+                        ? 'ERP Processing'
+                        : item.erpSyncStatus === 'pending'
+                          ? 'ERP Pending'
+                          : item.erpSyncStatus === 'hold_by_finance'
+                            ? 'On Hold'
+                            : item.businessStatus === 'approved'
+                              ? 'Approved'
+                              : 'Pending';
+
+                return (
               <div
                 key={item.id}
                 className="p-6 flex items-center justify-between group cursor-pointer hover:bg-surface-container-low"
@@ -217,6 +355,20 @@ export default function MyApprovals() {
                       {new Date(item.createdAt).toLocaleDateString()}
                     </div>
                   </div>
+
+                  <div className="w-32">
+                    <div className="text-[10px] font-black uppercase tracking-widest text-on-surface-variant mb-1">State</div>
+                    <div
+                      className={cn(
+                        'inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-black uppercase tracking-wide',
+                        hasPendingActions
+                          ? 'bg-amber-50 text-amber-700'
+                          : 'bg-surface-container-low text-on-surface-variant'
+                      )}
+                    >
+                      {hasPendingActions ? 'Action Required' : outcomeLabel}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-3">
@@ -229,28 +381,79 @@ export default function MyApprovals() {
                   >
                     View Details
                   </button>
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleReject(item.id);
-                    }}
-                    disabled={actingRequestId === item.id || !item.allowedActions?.reject}
-                    className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-all"
-                  >
-                    <XCircle size={20} />
-                  </button>
-                  <button
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      void handleApprove(item.id);
-                    }}
-                    disabled={actingRequestId === item.id || !item.allowedActions?.approve}
-                    className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-xl transition-all"
-                  >
-                    <CheckCircle2 size={20} />
-                  </button>
+                  {hasPendingActions && item.allowedActions?.financeReject ? (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleFinanceReject(item.id);
+                      }}
+                      disabled={actingRequestId === item.id}
+                      className="px-3 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-all text-[11px] font-black uppercase tracking-tighter"
+                    >
+                      Finance Reject
+                    </button>
+                  ) : hasPendingActions ? (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleReject(item.id);
+                      }}
+                      disabled={actingRequestId === item.id || !item.allowedActions?.reject}
+                      className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl transition-all"
+                    >
+                      <XCircle size={20} />
+                    </button>
+                  ) : null}
+                  {hasPendingActions && item.allowedActions?.holdSync && (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleHold(item.id);
+                      }}
+                      disabled={actingRequestId === item.id}
+                      className="px-3 py-2 bg-amber-50 text-amber-700 hover:bg-amber-100 rounded-xl transition-all text-[11px] font-black uppercase tracking-tighter"
+                    >
+                      Hold
+                    </button>
+                  )}
+                  {hasPendingActions && item.allowedActions?.releaseToErp ? (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleRelease(item.id);
+                      }}
+                      disabled={actingRequestId === item.id}
+                      className="px-3 py-2 bg-secondary text-white hover:bg-secondary-container rounded-xl transition-all text-[11px] font-black uppercase tracking-tighter"
+                    >
+                      Release ERP
+                    </button>
+                  ) : hasPendingActions && item.allowedActions?.financeApprove ? (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleFinanceApprove(item.id);
+                      }}
+                      disabled={actingRequestId === item.id}
+                      className="px-3 py-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-xl transition-all text-[11px] font-black uppercase tracking-tighter"
+                    >
+                      Finance Approve
+                    </button>
+                  ) : hasPendingActions ? (
+                    <button
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleApprove(item.id);
+                      }}
+                      disabled={actingRequestId === item.id || !item.allowedActions?.approve}
+                      className="p-2 bg-green-50 text-green-600 hover:bg-green-100 rounded-xl transition-all"
+                    >
+                      <CheckCircle2 size={20} />
+                    </button>
+                  ) : null}
                 </div>
               </div>
+                );
+              })()
             ))
           )}
         </div>

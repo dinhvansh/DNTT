@@ -1,132 +1,238 @@
 # DNTT Payment Request Workspace
 
-Workspace này triển khai module `Payment Request` theo hướng:
+This repository implements the `Payment Request` module on a layered stack:
 
 - `web`: React + Vite
 - `api`: Node.js business API
-- `worker`: background worker cho ERP integration
-- `postgres`: dữ liệu nghiệp vụ
-- `redis`: queue coordination
-- `minio`: object storage cho attachment
-- `docker-compose`: môi trường dev/UAT cục bộ
+- `worker`: ERP background worker
+- `postgres`: transactional database
+- `redis`: job coordination
+- `minio`: object storage for attachments
+- `docker-compose`: local dev and UAT stack
 
-Hệ thống đang bám theo tài liệu nghiệp vụ ở [tai_lieu_giai_phap_payment_request_eoffice.md](./tai_lieu_giai_phap_payment_request_eoffice.md) và tiến độ kỹ thuật ở [docs/development-plan.md](./docs/development-plan.md).
+Business scope follows:
 
-## Cấu trúc repo
+- [solution document](./tai_lieu_giai_phap_payment_request_eoffice.md)
+- [development plan](./docs/development-plan.md)
+
+## Repository Layout
 
 ```text
 .
-|-- api/        # API, authorization, workflow, tests
-|-- db/         # schema + seed PostgreSQL
-|-- docs/       # development plan
+|-- api/        # API, workflow, authorization, route tests
+|-- db/         # PostgreSQL schema, seed, scripts
+|-- docs/       # plan and handover
 |-- web/        # React frontend
-|-- worker/     # ERP worker + retry policy
+|-- worker/     # ERP worker and retry/reconcile logic
 |-- docker-compose.yml
 `-- README.md
 ```
 
-## Trạng thái hiện tại
+## Current Status
 
-Đã có:
+Implemented:
 
-- local sign in / register để test nhanh
-- tạo draft payment request
-- submit request
+- local sign in / register for testing
+- create draft request
+- save header, detail, and upload attachments to MinIO
+- submit
 - approve / reject / return / resubmit / cancel
-- workflow cố định `Line Manager -> Reviewer -> HOD -> CFO -> CEO`
-- deduplicate approver
-- delegation trong validity window
-- visibility record-level theo `need-to-know`
+- reject requires a non-empty reason note
+- fixed workflow chain:
+  - `Line Manager -> Reviewer -> HOD -> CFO -> CEO`
+- approver deduplication
+- delegation within validity window
+- record-level visibility with `need-to-know`
 - finance release queue
-- `Release to ERP` / `Hold Sync`
-- ERP job list + manual retry
+- finance review:
+  - `Approve Only`
+  - `Reject`
+  - `Approve & Release ERP`
+  - `Hold Sync`
+- ERP job list and manual retry
 - worker auto retry policy
-- approval setup thật:
-  - tạo phòng ban
-  - set reviewer / HOD / fallback theo phòng ban
-  - set global CFO / CEO + threshold
+- worker reconcile job for ERP anomalies
+- outbound webhook for request status changes and ERP job updates
+- master-data-first org model:
+  - create `department`
+  - create `position`
+  - assign `user -> department + position + line manager`
+- requester department is derived from user profile
+- approval setup UI and API:
+  - create department
+  - map reviewer / HOD / fallback by direct user mapping
+  - configure local step order for `Line Manager / Reviewer / HOD`
+  - set global CFO / CEO positions and thresholds
+- request audit timeline
+- generic audit log API for admin and auditor
 
-Chưa hoàn tất:
+Still open:
 
-- upload binary thật lên MinIO
-- full audit coverage
-- reconcile job
-- backup / restore
-- hardening production
+- attachment-level visibility
+- field masking
+- advanced template configuration
+- production hardening beyond current local/UAT scope
 
-## Yêu cầu môi trường
+## Webhook Integration
+
+The stack can publish outbound webhooks for external systems.
+
+API webhook events:
+
+- `payment_request.created`
+- `payment_request.submitted`
+- `payment_request.approved`
+- `payment_request.rejected`
+- `payment_request.returned`
+- `payment_request.resubmitted`
+- `payment_request.cancelled`
+- `payment_request.finance_approved`
+- `payment_request.finance_rejected`
+- `payment_request.erp_released`
+- `payment_request.erp_hold`
+
+Worker webhook events:
+
+- `erp.job.updated`
+
+API env:
+
+- `WEBHOOK_URL`
+- `WEBHOOK_SECRET`
+- `WEBHOOK_EVENTS`
+- `WEBHOOK_TIMEOUT_MS`
+
+Worker env:
+
+- `WORKER_WEBHOOK_URL`
+- `WORKER_WEBHOOK_SECRET`
+- `WORKER_WEBHOOK_EVENTS`
+- `WORKER_WEBHOOK_TIMEOUT_MS`
+
+Notes:
+
+- webhook delivery is best-effort and does not rollback the main business action
+- when a secret is configured, requests include `x-webhook-signature` as `HMAC-SHA256`
+
+## Requirements
 
 - Docker Desktop
-- Node.js 22+ nếu muốn chạy lệnh ngoài container
+- Node.js 22+ if you want to run commands outside containers
+- PowerShell for the bundled backup and restore scripts
 
-## Chạy nhanh bằng Docker
+## Quick Start
 
 ```bash
 docker compose up -d
 ```
 
-Các service mặc định:
+Default services:
 
-- Web: `http://localhost:3000`
-- API: `http://localhost:8080`
-- PostgreSQL: `localhost:5432`
-- Redis: `localhost:6379`
+- Web: `http://localhost:3001`
+- API: `http://localhost:18081`
+- PostgreSQL: `localhost:5433`
+- Redis: `localhost:6380`
 - MinIO API: `http://localhost:9000`
 - MinIO Console: `http://localhost:9001`
 
-Nếu cần recreate sạch web/api:
+Recreate only web and api:
 
 ```bash
 docker compose up -d --force-recreate web api
 ```
 
-## Tài khoản test
+Production-style image build:
+
+```bash
+docker compose -f docker-compose.prod.yml build
+docker compose -f docker-compose.prod.yml up -d
+```
+
+## Test Accounts
 
 - `requester1@example.com / 1234`
 - `approver1@example.com / 1234`
 - `financeops@example.com / 1234`
 - `sysadmin@example.com / 1234`
+- `auditor1@example.com / 1234`
 
-`sysadmin` có quyền vào `Approval Setup`.
+Notes:
 
-## Luồng test nhanh
+- `sysadmin` can access `Approval Setup`
+- `auditor` is view-only and can access audit logs
 
-### 1. Request flow
+If the running PostgreSQL volume was created before the auditor seed was added, apply:
 
-1. Đăng nhập `requester1@example.com`
-2. Vào `Payment Requests` hoặc `New Request`
-3. Tạo request và `Save Draft`
-4. Mở detail và `Submit`
+```powershell
+Get-Content db/manual/2026-03-26_seed_auditor.sql | docker compose exec -T postgres psql -U payment_app -d payment_request
+```
 
-### 2. Approval flow
+If the running PostgreSQL volume was created before the `department + position + user` refactor, apply:
 
-1. Đăng nhập approver phù hợp
-2. Vào `My Approvals`
-3. Thử `Approve`, `Reject`, hoặc `Return`
+```powershell
+Get-Content db/manual/2026-03-26_positions_refactor.sql | docker compose exec -T postgres psql -U payment_app -d payment_request
+```
 
-### 3. Finance / ERP flow
+## Common Test Flows
 
-1. Sau final approval, request sang `Waiting Finance Release`
-2. Đăng nhập `financeops@example.com`
-3. Vào `ERP Integration Log`
-4. Thử `Release to ERP`, `Hold Sync`, `Retry`
+### Request flow
 
-### 4. Approval setup flow
+1. Sign in with `requester1@example.com`
+2. Open `New Request`
+3. Create a request and `Save Draft`
+4. Open detail and `Submit`
 
-1. Đăng nhập `sysadmin@example.com`
-2. Vào `Approval Setup`
-3. Tạo department mới nếu cần
-4. Chọn reviewer / HOD / fallback
-5. Set global CFO / CEO threshold
+### Approval flow
 
-## Env templates
+1. Sign in with the current approver
+2. Open `My Approvals`
+3. Test `Approve`, `Reject`, or `Return`
 
-- root [.env.example](./.env.example): override cho Docker
-- [web/.env.example](./web/.env.example): env cho frontend
-- [api/.env.example](./api/.env.example): env cho API
-- [worker/.env.example](./worker/.env.example): env cho worker
+### Finance / ERP flow
 
-## Lệnh hữu ích
+1. Move a request to final business approval
+2. Sign in with `financeops@example.com`
+3. Open `ERP Integration Log`
+4. Open request detail from finance queue when needed
+5. Test `Approve Only`, `Reject`, `Approve & Release ERP`, `Hold Sync`, `Retry`
+
+### Approval setup flow
+
+1. Sign in with `sysadmin@example.com`
+2. Open `Master Data`
+3. Create or update users with:
+   - department
+   - position
+   - line manager
+4. Open `Approval Setup`
+5. Create a department if needed
+6. Map reviewer / HOD / fallback by position
+7. Set local step order
+8. Set global CFO / CEO positions and thresholds
+
+### Department-derived request flow
+
+1. Sign in with a requester account
+2. Confirm the requester already has a department in `Master Data`
+3. Open `New Request`
+4. Confirm department is shown from user profile
+5. Submit without manually choosing department
+
+### Auditor flow
+
+1. Sign in with `auditor1@example.com`
+2. Open request list and request detail
+3. Confirm there are no mutation actions
+4. Confirm audit timeline loads for new requests
+
+## Environment Templates
+
+- root [`.env.example`](./.env.example): Docker overrides
+- [`web/.env.example`](./web/.env.example): frontend env
+- [`api/.env.example`](./api/.env.example): API env
+- [`worker/.env.example`](./worker/.env.example): worker env
+
+## Useful Commands
 
 ```bash
 npm run lint
@@ -135,32 +241,41 @@ npm run api:test
 npm run worker:test
 ```
 
-## Test đã dùng thường xuyên
+Direct test commands:
 
 ```bash
 node --test api/tests/*.mjs
 node --test worker/tests/*.mjs
 ```
 
-Các test đang tập trung mạnh vào:
+## Backup and Restore
 
-- permission âm / dương
-- visibility theo role và department
-- delegated approver
-- finance release / retry
-- workflow chain
-- approval setup APIs
+Create a PostgreSQL backup:
 
-## Một số quyết định kiến trúc
+```powershell
+powershell -ExecutionPolicy Bypass -File db/scripts/backup.ps1
+```
 
-- frontend không ghi trực tiếp dữ liệu nghiệp vụ nhạy cảm
-- business status tách riêng ERP sync status
-- ERP chỉ tạo job sau `Release to ERP`
-- workflow là khung cố định, không có builder tự do ở phase hiện tại
-- approval config theo phòng ban, không tạo flow riêng cho từng phòng ban
+Restore from a backup file:
 
-## Tài liệu liên quan
+```powershell
+powershell -ExecutionPolicy Bypass -File db/scripts/restore.ps1 -BackupFile db/backups/payment_request-YYYYMMDD-HHMMSS.sql
+```
 
-- nghiệp vụ: [tai_lieu_giai_phap_payment_request_eoffice.md](./tai_lieu_giai_phap_payment_request_eoffice.md)
-- tiến độ triển khai: [docs/development-plan.md](./docs/development-plan.md)
+## Architecture Decisions
 
+- frontend does not write sensitive business data directly
+- business status is separate from ERP sync status
+- ERP jobs are created only after `Release to ERP`
+- workflow remains fixed in the current phase
+- approval config is department-based and position-based, not free-form workflow-per-department
+- local step order is configurable only for `Line Manager / Reviewer / HOD`
+- reconcile logic lives in the worker, not in request approval transactions
+
+## Related Documents
+
+- business: [solution document](./tai_lieu_giai_phap_payment_request_eoffice.md)
+- current MVP business flow: [business flow requirement](./docs/business-flow-requirement.md)
+- setup and test flow: [setup flow guide](./docs/setup-flow-guide.md)
+- delivery tracking: [development plan](./docs/development-plan.md)
+- handover: [handover notes](./docs/handover.md)

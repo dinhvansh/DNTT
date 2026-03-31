@@ -3,7 +3,9 @@ export interface ErpIntegrationJob {
   requestId: string | null;
   requestNo: string | null;
   targetSystem: string;
+  idempotencyKey?: string | null;
   status: string;
+  errorCategory?: string | null;
   retryCount: number;
   lastError: string | null;
   createdAt: string;

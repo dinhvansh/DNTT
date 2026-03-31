@@ -6,6 +6,7 @@ export const devRequests = [
     departmentId: 'dep-a',
     requestType: 'payment_request',
     requestNo: 'PR-2026-0001',
+    vendorCode: 'VEND-GLI',
     payeeName: 'Apex Global Systems',
     paymentType: 'Wire Transfer',
     totalAmount: 125000,
@@ -18,6 +19,16 @@ export const devRequests = [
     workflowUserIds: ['approver-1', 'approver-3', 'hod-1'],
     currentStepApproverIds: ['approver-1'],
     additionalRelatedUserIds: [],
+    attachments: [
+      {
+        id: 'att-related-invoice',
+        attachmentType: 'invoice',
+        fileName: 'invoice-related.pdf',
+        filePath: 'minio://payment-request/attachments/2026-03-24/invoice-related.pdf',
+        fileSize: 20480,
+        uploadedAt: '2026-03-24T14:25:00.000Z',
+      },
+    ],
   },
   {
     id: 'req-finance-shared',
@@ -26,6 +37,7 @@ export const devRequests = [
     departmentId: 'dep-b',
     requestType: 'payment_request',
     requestNo: 'PR-2026-0002',
+    vendorCode: 'VEND-AWS',
     payeeName: 'Vertex Tax Solutions',
     paymentType: 'Service Payment',
     totalAmount: 920000,
@@ -38,6 +50,16 @@ export const devRequests = [
     workflowUserIds: ['approver-2', 'cfo-1'],
     currentStepApproverIds: [],
     additionalRelatedUserIds: [],
+    attachments: [
+      {
+        id: 'att-finance-bank-proof',
+        attachmentType: 'bank_proof',
+        fileName: 'bank-proof.pdf',
+        filePath: 'minio://payment-request/attachments/2026-03-25/bank-proof.pdf',
+        fileSize: 10240,
+        uploadedAt: '2026-03-25T08:32:00.000Z',
+      },
+    ],
   },
   {
     id: 'req-same-department',
@@ -46,6 +68,7 @@ export const devRequests = [
     departmentId: 'dep-a',
     requestType: 'payment_request',
     requestNo: 'PR-2026-0003',
+    vendorCode: 'VEND-GLI',
     payeeName: 'Stellar Logistics',
     paymentType: 'Vendor Payment',
     totalAmount: 430000,
@@ -58,6 +81,24 @@ export const devRequests = [
     workflowUserIds: ['approver-3'],
     currentStepApproverIds: ['approver-3'],
     additionalRelatedUserIds: [],
+    attachments: [
+      {
+        id: 'att-same-dept-invoice',
+        attachmentType: 'invoice',
+        fileName: 'same-dept-invoice.pdf',
+        filePath: 'minio://payment-request/attachments/2026-03-25/same-dept-invoice.pdf',
+        fileSize: 15360,
+        uploadedAt: '2026-03-25T10:16:00.000Z',
+      },
+      {
+        id: 'att-same-dept-bank-proof',
+        attachmentType: 'bank_proof',
+        fileName: 'same-dept-bank-proof.pdf',
+        filePath: 'minio://payment-request/attachments/2026-03-25/same-dept-bank-proof.pdf',
+        fileSize: 7680,
+        uploadedAt: '2026-03-25T10:17:00.000Z',
+      },
+    ],
   },
 ];
 

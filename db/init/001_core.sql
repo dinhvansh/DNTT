@@ -74,12 +74,65 @@ CREATE TABLE IF NOT EXISTS departments (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE IF NOT EXISTS positions (
+  position_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  position_code TEXT NOT NULL UNIQUE,
+  position_name TEXT NOT NULL,
+  is_global BOOLEAN NOT NULL DEFAULT FALSE,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS vendors (
+  vendor_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  vendor_code TEXT NOT NULL UNIQUE,
+  vendor_name TEXT NOT NULL,
+  currency TEXT NOT NULL DEFAULT 'VND',
+  bank_account_name TEXT,
+  bank_account_number TEXT,
+  bank_name TEXT,
+  sync_source TEXT NOT NULL DEFAULT 'manual',
+  last_synced_at TIMESTAMPTZ,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS erp_reference_values (
+  erp_reference_value_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reference_type TEXT NOT NULL,
+  reference_code TEXT NOT NULL,
+  reference_name TEXT NOT NULL,
+  parent_code TEXT,
+  currency TEXT,
+  metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  sync_source TEXT NOT NULL DEFAULT 'manual',
+  last_synced_at TIMESTAMPTZ,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (reference_type, reference_code)
+);
+
+CREATE TABLE IF NOT EXISTS erp_sync_runs (
+  erp_sync_run_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reference_type TEXT NOT NULL,
+  sync_mode TEXT NOT NULL DEFAULT 'manual',
+  status TEXT NOT NULL DEFAULT 'success',
+  records_upserted INTEGER NOT NULL DEFAULT 0,
+  error_message TEXT,
+  triggered_by UUID REFERENCES users(user_id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS users (
   user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   employee_code TEXT UNIQUE,
   full_name TEXT NOT NULL,
   email TEXT NOT NULL UNIQUE,
   department_id UUID REFERENCES departments(department_id),
+  position_id UUID REFERENCES positions(position_id),
   line_manager_id UUID REFERENCES users(user_id),
   identity_subject TEXT UNIQUE,
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -97,6 +150,10 @@ CREATE TABLE IF NOT EXISTS user_roles (
 CREATE TABLE IF NOT EXISTS department_approval_setup (
   department_approval_setup_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   department_id UUID NOT NULL REFERENCES departments(department_id),
+  reviewer_position_id UUID REFERENCES positions(position_id),
+  hod_position_id UUID REFERENCES positions(position_id),
+  fallback_position_id UUID REFERENCES positions(position_id),
+  step_order_json JSONB NOT NULL DEFAULT '["line_manager","reviewer","hod"]'::jsonb,
   reviewer_user_id UUID REFERENCES users(user_id),
   hod_user_id UUID REFERENCES users(user_id),
   fallback_user_id UUID REFERENCES users(user_id),
@@ -110,6 +167,8 @@ CREATE TABLE IF NOT EXISTS department_approval_setup (
 CREATE TABLE IF NOT EXISTS global_approver_config (
   global_approver_config_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   company_code TEXT NOT NULL UNIQUE,
+  cfo_position_id UUID REFERENCES positions(position_id),
+  ceo_position_id UUID REFERENCES positions(position_id),
   cfo_user_id UUID REFERENCES users(user_id),
   ceo_user_id UUID REFERENCES users(user_id),
   cfo_amount_threshold NUMERIC(18, 2),
@@ -215,11 +274,15 @@ CREATE TABLE IF NOT EXISTS payment_request_details (
   cost_center TEXT,
   gl_account TEXT,
   project_code TEXT,
+  expense_type_code TEXT,
+  currency TEXT NOT NULL DEFAULT 'VND',
+  exchange_rate NUMERIC(18, 6) NOT NULL DEFAULT 1,
   po_no TEXT,
   contract_no TEXT,
   amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
   vat_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
   total_amount NUMERIC(18, 2) NOT NULL DEFAULT 0,
+  note TEXT,
   remark TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -271,8 +334,10 @@ CREATE TABLE IF NOT EXISTS integration_jobs (
   ref_type TEXT NOT NULL,
   ref_id UUID NOT NULL,
   target_system TEXT NOT NULL,
+  idempotency_key TEXT,
   payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
   status integration_job_status NOT NULL DEFAULT 'pending',
+  error_category TEXT,
   retry_count INTEGER NOT NULL DEFAULT 0,
   last_error TEXT,
   next_retry_at TIMESTAMPTZ,
@@ -322,5 +387,12 @@ CREATE INDEX IF NOT EXISTS idx_request_workflow_steps_assignee
 CREATE INDEX IF NOT EXISTS idx_integration_jobs_status_next_retry
   ON integration_jobs (status, next_retry_at);
 
+CREATE UNIQUE INDEX IF NOT EXISTS uq_integration_jobs_target_idempotency
+  ON integration_jobs (target_system, idempotency_key)
+  WHERE idempotency_key IS NOT NULL;
+
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity
   ON audit_logs (entity_type, entity_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_erp_reference_values_type_active
+  ON erp_reference_values (reference_type, is_active, reference_name);

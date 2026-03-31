@@ -29,8 +29,28 @@ interface RegisterInput {
 
 interface StoredAccount {
   email: string;
+  passwordHash: string;
+  displayName: string;
+}
+
+interface SeedAccount {
+  email: string;
   password: string;
   displayName: string;
+}
+
+type StoredAccountRecord = StoredAccount & { password?: string };
+
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function normalizeAccount(account: StoredAccount): StoredAccount {
+  return {
+    ...account,
+    email: normalizeEmail(account.email),
+    passwordHash: account.passwordHash,
+  };
 }
 
 interface AuthContextType {
@@ -39,6 +59,7 @@ interface AuthContextType {
   loading: boolean;
   login: (input: LoginInput) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
+  resetPassword: (input: { email: string; displayName: string; password: string }) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -46,7 +67,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8080';
 const ACCOUNTS_STORAGE_KEY = 'ledger_local_accounts_v1';
 const SESSION_STORAGE_KEY = 'ledger_local_session_v1';
-const DEFAULT_TEST_ACCOUNTS: StoredAccount[] = [
+const DEFAULT_TEST_ACCOUNTS: SeedAccount[] = [
   {
     email: 'requester1@example.com',
     password: '1234',
@@ -69,22 +90,59 @@ const DEFAULT_TEST_ACCOUNTS: StoredAccount[] = [
   },
 ];
 
-function getAvailableAccounts() {
-  const customAccounts = readStoredAccounts();
+async function hashPassword(password: string) {
+  const data = new TextEncoder().encode(password);
+  const digest = await window.crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(digest))
+    .map((value) => value.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function buildStoredAccount(input: SeedAccount) {
+  return normalizeAccount({
+    email: input.email,
+    passwordHash: await hashPassword(input.password),
+    displayName: input.displayName,
+  });
+}
+
+async function mergeAccounts(accounts: StoredAccountRecord[]) {
   const merged = new Map<string, StoredAccount>();
 
   for (const account of DEFAULT_TEST_ACCOUNTS) {
-    merged.set(account.email, account);
+    const normalized = await buildStoredAccount(account);
+    merged.set(normalized.email, normalized);
   }
 
-  for (const account of customAccounts) {
-    merged.set(account.email, account);
+  for (const account of accounts) {
+    const normalized = 'passwordHash' in account && account.passwordHash
+      ? normalizeAccount(account as StoredAccount)
+      : await buildStoredAccount({
+          email: account.email,
+          password: account.password ?? '1234',
+          displayName: account.displayName,
+        });
+    merged.set(normalized.email, normalized);
   }
 
   return Array.from(merged.values());
 }
 
-function readStoredAccounts(): StoredAccount[] {
+async function seedAvailableAccounts() {
+  const merged = await mergeAccounts(readStoredAccounts());
+  writeStoredAccounts(merged);
+  return merged;
+}
+
+async function getAvailableAccounts() {
+  if (typeof window === 'undefined') {
+    return [];
+  }
+
+  return seedAvailableAccounts();
+}
+
+function readStoredAccounts(): StoredAccountRecord[] {
   if (typeof window === 'undefined') {
     return [];
   }
@@ -96,7 +154,7 @@ function readStoredAccounts(): StoredAccount[] {
     }
 
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    return Array.isArray(parsed) ? (parsed as StoredAccountRecord[]) : [];
   } catch {
     return [];
   }
@@ -106,20 +164,30 @@ function writeStoredAccounts(accounts: StoredAccount[]) {
   window.localStorage.setItem(ACCOUNTS_STORAGE_KEY, JSON.stringify(accounts));
 }
 
+async function upsertStoredAccount(input: SeedAccount) {
+  const existingAccounts = await seedAvailableAccounts();
+  const nextAccounts = [
+    ...existingAccounts.filter((entry) => entry.email !== normalizeEmail(input.email)),
+    await buildStoredAccount(input),
+  ];
+
+  writeStoredAccounts(nextAccounts);
+}
+
 function readStoredSession() {
   if (typeof window === 'undefined') {
     return null;
   }
 
-  return window.localStorage.getItem(SESSION_STORAGE_KEY);
+  return window.sessionStorage.getItem(SESSION_STORAGE_KEY);
 }
 
 function writeStoredSession(email: string) {
-  window.localStorage.setItem(SESSION_STORAGE_KEY, email);
+  window.sessionStorage.setItem(SESSION_STORAGE_KEY, email);
 }
 
 function clearStoredSession() {
-  window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  window.sessionStorage.removeItem(SESSION_STORAGE_KEY);
 }
 
 async function fetchActorFromApi(email: string): Promise<ActorContext | null> {
@@ -163,13 +231,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const restore = async () => {
+      await seedAvailableAccounts();
       const sessionEmail = readStoredSession();
       if (!sessionEmail) {
         setLoading(false);
         return;
       }
 
-      const account = getAvailableAccounts().find((entry) => entry.email === sessionEmail);
+      const account = (await getAvailableAccounts()).find((entry) => entry.email === sessionEmail);
       const resolvedActor = await fetchActorFromApi(sessionEmail);
 
       if (!account || !resolvedActor) {
@@ -193,13 +262,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (input: LoginInput) => {
-    const email = input.email.trim().toLowerCase();
-    const account = getAvailableAccounts().find((entry) => entry.email === email && entry.password === input.password);
+    const email = normalizeEmail(input.email);
+    const passwordHash = await hashPassword(input.password.trim());
+    let account = (await getAvailableAccounts()).find(
+      (entry) => entry.email === email && entry.passwordHash === passwordHash
+    );
+
+    const resolvedActor = await fetchActorFromApi(email);
+    if (!account && resolvedActor && input.password.trim() === '1234') {
+      await upsertStoredAccount({
+        email,
+        password: '1234',
+        displayName: resolvedActor.fullName,
+      });
+      account = (await getAvailableAccounts()).find(
+        (entry) => entry.email === email && entry.passwordHash === passwordHash
+      ) ?? null;
+    }
+
     if (!account) {
       throw new Error('Email or password is incorrect.');
     }
 
-    const resolvedActor = await fetchActorFromApi(email);
     if (!resolvedActor) {
       throw new Error('Account exists locally but is not provisioned in backend.');
     }
@@ -214,8 +298,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const register = async (input: RegisterInput) => {
-    const email = input.email.trim().toLowerCase();
-    const accounts = readStoredAccounts();
+    const email = normalizeEmail(input.email);
+    const accounts = await seedAvailableAccounts();
     if (accounts.some((entry) => entry.email === email)) {
       throw new Error('Email is already registered on this browser.');
     }
@@ -227,11 +311,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     const nextAccounts = [
       ...accounts,
-      {
+      await buildStoredAccount({
         email,
-        password: input.password,
+        password: '1234',
         displayName: input.fullName.trim(),
-      },
+      }),
     ];
 
     writeStoredAccounts(nextAccounts);
@@ -244,6 +328,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setActor(actor);
   };
 
+  const resetPassword = async (input: { email: string; displayName: string; password: string }) => {
+    const email = normalizeEmail(input.email);
+    const password = input.password.trim();
+    if (password.length < 4) {
+      throw new Error('Password must be at least 4 characters.');
+    }
+
+    const existingAccounts = (await seedAvailableAccounts()).filter((entry) => entry.email !== email);
+    const nextAccounts = [
+      ...existingAccounts,
+      await buildStoredAccount({
+        email,
+        password,
+        displayName: input.displayName.trim(),
+      }),
+    ];
+
+    writeStoredAccounts(nextAccounts);
+  };
+
   const logout = async () => {
     clearStoredSession();
     setUser(null);
@@ -251,7 +355,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, actor, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, actor, loading, login, register, resetPassword, logout }}>
       {children}
     </AuthContext.Provider>
   );

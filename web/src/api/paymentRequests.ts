@@ -1,5 +1,11 @@
-import type { PaymentRequestSummary } from '../types/paymentRequest';
+import type {
+  PaymentRequestErpReadiness,
+  PaymentRequestSummary,
+  PaymentRequestWorkflowPreview,
+  PaymentRequestWorkflowPreviewIssue,
+} from '../types/paymentRequest';
 import type { ErpIntegrationJob } from '../types/erpJob';
+import type { AuditLogEntry } from '../types/auditLog';
 
 export interface ApiActorContext {
   userId: string;
@@ -44,7 +50,11 @@ async function parseJson<T>(response: Response): Promise<T> {
   const payload = await response.json();
   if (!response.ok) {
     const message = payload?.message || 'API request failed';
-    throw new Error(message);
+    const error = new Error(message) as Error & {
+      details?: string[] | PaymentRequestWorkflowPreviewIssue[];
+    };
+    error.details = payload?.details;
+    throw error;
   }
 
   return payload as T;
@@ -64,6 +74,64 @@ export async function getPaymentRequestById(id: string, actor: ApiActorContext) 
   });
 
   return parseJson<{ data: PaymentRequestSummary }>(response);
+}
+
+export async function getAttachmentContent(attachmentId: string, actor: ApiActorContext, options?: { download?: boolean }) {
+  const downloadQuery = options?.download ? '?download=1' : '';
+  const response = await fetch(`${API_BASE_URL}/api/attachments/${attachmentId}/content${downloadQuery}`, {
+    headers: buildHeaders(actor),
+  });
+
+  if (!response.ok) {
+    let message = 'Attachment request failed';
+    try {
+      const payload = await response.json();
+      message = payload?.message || message;
+    } catch {
+      // Ignore non-JSON error responses.
+    }
+    throw new Error(message);
+  }
+
+  return {
+    blob: await response.blob(),
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+  };
+}
+
+export async function listPaymentRequestAuditLogs(id: string, actor: ApiActorContext) {
+  const response = await fetch(`${API_BASE_URL}/api/payment-requests/${id}/audit-logs`, {
+    headers: buildHeaders(actor),
+  });
+
+  return parseJson<{ data: AuditLogEntry[]; total: number }>(response);
+}
+
+export async function getPaymentRequestErpReadiness(id: string, actor: ApiActorContext) {
+  const response = await fetch(`${API_BASE_URL}/api/payment-requests/${id}/erp-readiness`, {
+    headers: buildHeaders(actor),
+  });
+
+  return parseJson<{ data: PaymentRequestErpReadiness }>(response);
+}
+
+export async function previewPaymentRequestWorkflow(
+  input: {
+    totalAmount: number;
+    lineManagerOverrideId?: string | null;
+  },
+  actor: ApiActorContext
+) {
+  const response = await fetch(`${API_BASE_URL}/api/payment-requests/preview-workflow`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...buildHeaders(actor),
+    },
+    body: JSON.stringify(input),
+  });
+
+  return parseJson<{ data: PaymentRequestWorkflowPreview }>(response);
 }
 
 export async function listMyApprovals(actor: ApiActorContext) {
@@ -91,7 +159,8 @@ export async function listErpJobs(actor: ApiActorContext) {
 }
 
 export interface CreatePaymentRequestInput {
-  departmentId: string;
+  templateCode?: string;
+  vendorCode?: string;
   payeeName: string;
   paymentType: string;
   currency: string;
@@ -101,8 +170,17 @@ export interface CreatePaymentRequestInput {
   visibilityMode: string;
   lineItems: Array<{
     description: string;
+    invoiceDate?: string;
+    invoiceRef?: string;
     glCode?: string;
+    costCenter?: string;
+    projectCode?: string;
+    expenseTypeCode?: string;
+    currency?: string;
+    exchangeRate?: number;
     amount: number;
+    totalAmount?: number;
+    note?: string;
     remark?: string;
   }>;
   attachments?: Array<{
@@ -138,7 +216,31 @@ export async function approvePaymentRequest(id: string, actor: ApiActorContext) 
 export async function submitPaymentRequest(id: string, actor: ApiActorContext) {
   const response = await fetch(`${API_BASE_URL}/api/payment-requests/${id}/submit`, {
     method: 'POST',
-    headers: buildHeaders(actor),
+    headers: {
+      'content-type': 'application/json',
+      ...buildHeaders(actor),
+    },
+    body: JSON.stringify({}),
+  });
+
+  return parseJson<{ data: PaymentRequestSummary }>(response);
+}
+
+export async function submitPaymentRequestWithOverrides(
+  id: string,
+  input: {
+    lineManagerOverrideId?: string | null;
+    lineManagerOverrideReason?: string | null;
+  },
+  actor: ApiActorContext
+) {
+  const response = await fetch(`${API_BASE_URL}/api/payment-requests/${id}/submit`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...buildHeaders(actor),
+    },
+    body: JSON.stringify(input),
   });
 
   return parseJson<{ data: PaymentRequestSummary }>(response);
@@ -153,10 +255,14 @@ export async function cancelPaymentRequest(id: string, actor: ApiActorContext) {
   return parseJson<{ data: PaymentRequestSummary }>(response);
 }
 
-export async function rejectPaymentRequest(id: string, actor: ApiActorContext) {
+export async function rejectPaymentRequest(id: string, actor: ApiActorContext, note: string) {
   const response = await fetch(`${API_BASE_URL}/api/payment-requests/${id}/reject`, {
     method: 'POST',
-    headers: buildHeaders(actor),
+    headers: {
+      'content-type': 'application/json',
+      ...buildHeaders(actor),
+    },
+    body: JSON.stringify({ note }),
   });
 
   return parseJson<{ data: PaymentRequestSummary }>(response);
@@ -184,6 +290,28 @@ export async function releasePaymentRequestToErp(id: string, actor: ApiActorCont
   const response = await fetch(`${API_BASE_URL}/api/payment-requests/${id}/release-to-erp`, {
     method: 'POST',
     headers: buildHeaders(actor),
+  });
+
+  return parseJson<{ data: PaymentRequestSummary }>(response);
+}
+
+export async function financeApprovePaymentRequest(id: string, actor: ApiActorContext) {
+  const response = await fetch(`${API_BASE_URL}/api/payment-requests/${id}/finance-approve`, {
+    method: 'POST',
+    headers: buildHeaders(actor),
+  });
+
+  return parseJson<{ data: PaymentRequestSummary }>(response);
+}
+
+export async function financeRejectPaymentRequest(id: string, actor: ApiActorContext, note: string) {
+  const response = await fetch(`${API_BASE_URL}/api/payment-requests/${id}/finance-reject`, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...buildHeaders(actor),
+    },
+    body: JSON.stringify({ note }),
   });
 
   return parseJson<{ data: PaymentRequestSummary }>(response);

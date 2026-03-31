@@ -20,7 +20,6 @@ async function withServer(run) {
 
 function buildPayload() {
   return {
-    departmentId: 'dep-a',
     payeeName: 'New Vendor Co',
     paymentType: 'Wire Transfer',
     currency: 'VND',
@@ -90,6 +89,7 @@ test('POST /api/payment-requests creates a new request for actor', async () => {
     const body = await response.json();
     assert.equal(body.data.requesterId, 'requester-1');
     assert.equal(body.data.payeeName, 'New Vendor Co');
+    assert.equal(body.data.departmentId, 'dep-a');
     assert.equal(body.data.businessStatus, 'draft');
     assert.equal(body.data.attachments.length, 1);
     assert.equal(body.data.attachments[0].fileName, 'invoice-q1.pdf');
@@ -125,7 +125,7 @@ test('POST /api/payment-requests returns 400 for invalid attachment metadata', a
   });
 });
 
-test('POST /api/payment-requests returns 403 when actor creates request for another department', async () => {
+test('POST /api/payment-requests ignores any client department override and derives department from actor profile', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/payment-requests`, {
       method: 'POST',
@@ -135,9 +135,14 @@ test('POST /api/payment-requests returns 403 when actor creates request for anot
         'x-user-department': 'dep-b',
         'x-user-permissions': 'submit_request',
       },
-      body: JSON.stringify(buildPayload()),
+      body: JSON.stringify({
+        ...buildPayload(),
+        departmentId: 'dep-b',
+      }),
     });
 
-    assert.equal(response.status, 403);
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.data.departmentId, 'dep-a');
   });
 });
